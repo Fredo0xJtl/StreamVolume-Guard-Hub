@@ -1,0 +1,51 @@
+name: hub-ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    name: Build and test hybrid project
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Run protocol tests
+        run: node "packages/protocol/tests/protocol.test.js"
+
+      - name: Run extension unit tests
+        run: node "apps/browser-extension/tests/unit.test.js"
+
+      - name: Check extension bridge client syntax
+        run: node --check "apps/browser-extension/bridge/client.js"
+
+      - name: Check extension background syntax
+        run: node --check "apps/browser-extension/background.js"
+
+      - name: Check extension content syntax
+        run: node --check "apps/browser-extension/content.js"
+
+      - name: Restore desktop solution
+        run: dotnet restore "apps/desktop/StreamVolumeGuard.Desktop.sln"
+
+      - name: Run desktop core tests
+        run: dotnet run --project "apps/desktop/tests/StreamVolumeGuard.Tests/StreamVolumeGuard.Tests.csproj"
+
+      - name: Build desktop solution
+        run: dotnet build "apps/desktop/StreamVolumeGuard.Desktop.sln" --configuration Release --no-restore -nr:false

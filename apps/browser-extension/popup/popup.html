@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Compact streamer dashboard shown from the browser action. -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>StreamVolume Guard Hub</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="../storage/settings.js" defer></script>
+    <script src="../license/capabilities.js" defer></script>
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="../assets/logo.svg" alt="">
+        <div>
+          <h1 data-i18n="extensionName">StreamVolume Guard Hub</h1>
+          <div id="siteLabel" class="site" data-i18n="popupUnknownSite">unknown site</div>
+        </div>
+      </div>
+      <span id="statusBadge" class="badge" data-i18n="popupReady">ready</span>
+    </header>
+
+    <main>
+      <section class="trust-strip" aria-label="Trust signals">
+        <span data-i18n="trustLocalOnly">Local only</span>
+        <span data-i18n="trustOpenSource">Open source</span>
+        <span data-i18n="trustNoTracking">No tracking</span>
+      </section>
+
+      <section class="control-row">
+        <label class="switch">
+          <input id="enabledToggle" type="checkbox">
+          <span class="slider"></span>
+          <span class="switch-label" data-i18n="popupNormalization">Normalization</span>
+        </label>
+      </section>
+
+      <section class="field">
+        <label for="profileSelect" data-i18n="popupProfile">Profile</label>
+        <select id="profileSelect"></select>
+        <div id="profileHint" class="profile-hint"></div>
+      </section>
+
+      <section class="stream-status" aria-label="Streamer safety status">
+        <div class="help-anchor">
+          <button class="help-button" type="button" data-help-i18n="helpStreamStatus" aria-label="Help">?</button>
+          <span data-i18n="popupStreamStatus">Stream status</span>
+          <strong id="riskBadge" class="risk-badge is-safe" data-i18n="popupSafe">Safe</strong>
+        </div>
+        <div class="help-anchor">
+          <button class="help-button" type="button" data-help-i18n="helpContainedPeaks" aria-label="Help">?</button>
+          <span data-i18n="popupContainedPeaks">Peaks contained</span>
+          <strong id="containedPeaksValue">0</strong>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Audio state">
+        <div class="help-anchor">
+          <button class="help-button" type="button" data-help-i18n="helpGain" aria-label="Help">?</button>
+          <span data-i18n="popupGain">Gain</span>
+          <strong id="gainValue">0.0 dB</strong>
+        </div>
+        <div class="help-anchor">
+          <button class="help-button" type="button" data-help-i18n="helpRms" aria-label="Help">?</button>
+          <span data-i18n="popupRms">RMS</span>
+          <strong id="rmsValue">-120 dB</strong>
+        </div>
+        <div class="help-anchor">
+          <button class="help-button" type="button" data-help-i18n="helpMedia" aria-label="Help">?</button>
+          <span data-i18n="popupMedia">Media</span>
+          <strong id="mediaValue">0/0</strong>
+        </div>
+      </section>
+
+      <section class="diagnostics help-anchor">
+        <button class="help-button" type="button" data-help-i18n="helpDiagnostics" aria-label="Help">?</button>
+        <h2 data-i18n="popupDiagnostics">Diagnostics</h2>
+        <ul id="diagnosticsList"></ul>
+      </section>
+
+      <section class="actions">
+        <div class="action-item">
+          <button id="protectButton" type="button" data-i18n="popupProtectTab">Protect this tab</button>
+        </div>
+        <div class="action-item help-anchor">
+          <button class="help-button" type="button" data-help-i18n="helpAutoDomain" aria-label="Help">?</button>
+          <button id="autoDomainButton" type="button" data-i18n="popupAutoDomain">Auto on this domain</button>
+        </div>
+        <div class="action-item">
+          <button id="optionsButton" type="button" data-i18n="popupOptions">Options</button>
+        </div>
+      </section>
+
+      <section class="actions secondary-actions">
+        <div class="action-item">
+          <button id="panicButton" type="button" data-i18n="popupPanic">Panic</button>
+        </div>
+        <div class="action-item">
+          <button id="copyDiagnosticButton" type="button" data-i18n="popupCopyDiagnostic">Copy diagnostic</button>
+        </div>
+      </section>
+
+      <div id="message" class="message" role="status"></div>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,323 @@
+﻿<Window x:Class="StreamVolumeGuard.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="StreamVolume Guard Hub Desktop" Icon="Assets/app.ico" Height="820" Width="1180" MinHeight="720" MinWidth="980"
+        Background="{DynamicResource AppBackgroundBrush}" Foreground="{DynamicResource TextBrush}">
+    <Window.Resources>
+        <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F7F8FA" />
+        <SolidColorBrush x:Key="HeaderBrush" Color="#10202C" />
+        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="PanelSoftBrush" Color="#F5F8FA" />
+        <SolidColorBrush x:Key="BorderBrushSoft" Color="#D7E1E8" />
+        <SolidColorBrush x:Key="TextBrush" Color="#17202A" />
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#60707D" />
+        <SolidColorBrush x:Key="AccentBrush" Color="#1F6F78" />
+        <SolidColorBrush x:Key="TableAltBrush" Color="#F5F8FA" />
+        <SolidColorBrush x:Key="SafeBrush" Color="#188A4D" />
+        <SolidColorBrush x:Key="WarnBrush" Color="#D88211" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#C73333" />
+
+        <Style x:Key="PanelStyle" TargetType="Border">
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style x:Key="SummaryCardStyle" TargetType="Border" BasedOn="{StaticResource PanelStyle}">
+            <Setter Property="Padding" Value="12" />
+            <Setter Property="Background" Value="{DynamicResource PanelSoftBrush}" />
+        </Style>
+
+        <Style x:Key="TrustBadgeStyle" TargetType="Border">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Background" Value="#EDF8F1" />
+            <Setter Property="BorderBrush" Value="#CFE2D6" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="12,5" />
+            <Setter Property="BorderBrush" Value="#C8D0D8" />
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="HeaderButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="#183141" />
+            <Setter Property="BorderBrush" Value="#365263" />
+            <Setter Property="Foreground" Value="#F4F8FB" />
+        </Style>
+
+        <Style x:Key="PanicButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
+            <Setter Property="Background" Value="#B82828" />
+            <Setter Property="BorderBrush" Value="#B82828" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="MinWidth" Value="92" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#F4F8FB" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="AutoGenerateColumns" Value="False" />
+            <Setter Property="CanUserAddRows" Value="False" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HeadersVisibility" Value="Column" />
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="RowBackground" Value="{DynamicResource PanelBrush}" />
+            <Setter Property="AlternatingRowBackground" Value="{DynamicResource TableAltBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrushSoft}" />
+            <Setter Property="RowHeight" Value="38" />
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="{DynamicResource PanelSoftBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Padding" Value="8,7" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrushSoft}" />
+        </Style>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+        </Style>
+    </Window.Resources>
+
+    <DockPanel Background="{DynamicResource AppBackgroundBrush}">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource HeaderBrush}" Padding="22,18">
+            <DockPanel LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="40" Height="40" CornerRadius="8" Background="#F4FAFB" Margin="0,0,12,0">
+                        <Image Source="Assets/app.ico" Width="28" Height="28" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel>
+                        <TextBlock Text="StreamVolume Guard Hub Desktop" Foreground="#F4F8FB" FontSize="21" FontWeight="Bold" />
+                        <TextBlock Text="Mixeur intelligent local pour toutes tes sources" Foreground="#AEC1CC" FontSize="12" FontWeight="SemiBold" Margin="0,3,0,0" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <CheckBox x:Name="AutoEnabledCheckBox" Content="Auto actif" Margin="0,0,12,0" Checked="AutoEnabled_Changed" Unchecked="AutoEnabled_Changed" />
+                    <Button Content="{Binding ThemeButtonText}" Style="{StaticResource HeaderButtonStyle}" Margin="0,0,8,0" Click="Theme_Click" />
+                    <Button Content="Rafraîchir" Style="{StaticResource HeaderButtonStyle}" Margin="0,0,8,0" Click="Refresh_Click" />
+                    <Button Content="Panic" Style="{StaticResource PanicButtonStyle}" Click="Panic_Click" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <Grid Margin="18">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="2*" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Border Style="{StaticResource TrustBadgeStyle}">
+                        <TextBlock Text="Local" Foreground="#0D6832" FontSize="11" FontWeight="Black" />
+                    </Border>
+                    <Border Style="{StaticResource TrustBadgeStyle}">
+                        <TextBlock Text="Open source" Foreground="#0D6832" FontSize="11" FontWeight="Black" />
+                    </Border>
+                    <Border Style="{StaticResource TrustBadgeStyle}">
+                        <TextBlock Text="Zéro tracking" Foreground="#0D6832" FontSize="11" FontWeight="Black" />
+                    </Border>
+                    <Border Style="{StaticResource TrustBadgeStyle}">
+                        <TextBlock Text="Sans compte" Foreground="#0D6832" FontSize="11" FontWeight="Black" />
+                    </Border>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Right" Text="{Binding ThemeStatusText}" Foreground="{DynamicResource MutedTextBrush}" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </DockPanel>
+
+            <Grid Grid.Row="1" Margin="0,0,0,14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource SummaryCardStyle}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="Sources Windows" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="Black" />
+                            <TextBlock Text="{Binding WindowSourceCountText}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="1" Style="{StaticResource SummaryCardStyle}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="Sources navigateur" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="Black" />
+                            <TextBlock Text="{Binding BrowserSourceCountText}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource SummaryCardStyle}" Margin="0,0,10,0">
+                        <StackPanel>
+                            <TextBlock Text="À surveiller" Foreground="{DynamicResource WarnBrush}" FontSize="11" FontWeight="Black" />
+                            <TextBlock Text="{Binding WatchCountText}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="3" Style="{StaticResource SummaryCardStyle}">
+                        <StackPanel>
+                            <TextBlock Text="Mode" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="Black" />
+                            <TextBlock Text="{Binding ModeSummaryText}" FontSize="18" FontWeight="Bold" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Grid>
+
+            <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.2*" />
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Cible volume" FontSize="15" FontWeight="Bold" />
+                        <TextBlock Text="{Binding TargetDisplayText}" Foreground="{DynamicResource AccentBrush}" FontSize="18" FontWeight="Black" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding TargetBridgeText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,4,14,0" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Calme" MinWidth="82" Margin="0,0,8,0" Click="TargetQuiet_Click" />
+                            <Button Content="Standard" MinWidth="92" Margin="0,0,8,0" Click="TargetStandard_Click" />
+                            <Button Content="Fort" MinWidth="72" Click="TargetLoud_Click" />
+                        </StackPanel>
+                        <DockPanel>
+                            <TextBlock Text="-30 dB" Width="54" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="-15 dB" DockPanel.Dock="Right" Width="54" TextAlignment="Right" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                            <Slider x:Name="TargetSlider"
+                                    Minimum="-30"
+                                    Maximum="-15"
+                                    Value="-18"
+                                    TickFrequency="0.5"
+                                    IsSnapToTickEnabled="True"
+                                    SmallChange="0.5"
+                                    LargeChange="1"
+                                    ValueChanged="TargetSlider_ValueChanged" />
+                        </DockPanel>
+                    </StackPanel>
+
+                    <TextBlock Grid.Column="2" Text="Windows + navigateur" Foreground="{DynamicResource AccentBrush}" FontWeight="Black" VerticalAlignment="Center" Margin="18,0,0,0" />
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="3" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Applications Windows" FontSize="16" FontWeight="Bold" />
+                            <TextBlock Text="Mixeur Windows intelligent : volume manuel, statut, exclusions et contrôle réel." Foreground="{DynamicResource MutedTextBrush}" FontSize="12" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </DockPanel>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding Sessions}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Source" Binding="{Binding DisplayName}" Width="2*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Statut" Binding="{Binding Status}" Width="*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Pic" Binding="{Binding PeakPercent}" Width="0.8*" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="Volume" Width="2*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,0,6,0">
+                                            <TextBlock Text="{Binding VolumePercent}" Width="48" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" />
+                                            <Slider Minimum="0" Maximum="1" TickFrequency="0.05" Value="{Binding VolumeScalar, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Contrôle" Binding="{Binding ControlSurface}" Width="1.2*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Contrôlable" Binding="{Binding IsControllable}" Width="0.9*" IsReadOnly="True" />
+                            <DataGridTemplateColumn Header="Exclu" Width="0.7*">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsExcluded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                  Focusable="False"
+                                                  HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"
+                                                  Foreground="{DynamicResource TextBrush}" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Action" Binding="{Binding LastAction}" Width="2*" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="4" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Margin="0,0,0,10">
+                        <TextBlock Text="Sources navigateur" FontSize="16" FontWeight="Bold" />
+                        <TextBlock Text="Détail par onglet/site quand l'extension et le bridge local peuvent l'observer." Foreground="{DynamicResource MutedTextBrush}" FontSize="12" Margin="0,3,0,0" />
+                    </StackPanel>
+
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding BrowserSources}">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Navigateur" Binding="{Binding BrowserProcess}" Width="*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Statut" Binding="{Binding Status}" Width="*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Niveau" Binding="{Binding CurrentLevelPercent}" Width="0.8*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Gain" Binding="{Binding AppliedGainPercent}" Width="0.8*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Contrôle" Binding="{Binding ControlSurface}" Width="1.1*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Contrôlable" Binding="{Binding IsControllable}" Width="0.9*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Titre" Binding="{Binding Title}" Width="2*" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="5" Style="{StaticResource PanelStyle}" Padding="12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="Bridge, logs et debug" FontSize="13" FontWeight="Bold" />
+                        <TextBlock x:Name="LogStatusText" Text="Logs locaux prêts." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                        <TextBlock x:Name="BridgeStatusText" Text="Bridge local en attente de démarrage." Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                        <Button Content="Marquer étape" Margin="0,0,8,0" Click="MarkStep_Click" />
+                        <Button Content="Copier logs" Margin="0,0,8,0" Click="CopyRecentLogs_Click" />
+                        <Button Content="Ouvrir logs" Margin="0,0,8,0" Click="OpenLogs_Click" />
+                        <Button Content="Simuler source navigateur" Click="SimulateBrowserSource_Click" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

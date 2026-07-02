@@ -1,0 +1,394 @@
+{
+  "extensionName": {
+    "message": "StreamVolume Guard Hub",
+    "description": "Public extension name."
+  },
+  "extensionDescription": {
+    "message": "Open source audio guard for streamers. Smooths web volume locally, with no trackers and no data collection.",
+    "description": "Short description displayed by the browser and extension stores."
+  },
+  "popupUnknownSite": {
+    "message": "unknown site"
+  },
+  "popupReady": {
+    "message": "ready"
+  },
+  "popupActive": {
+    "message": "active"
+  },
+  "popupExcluded": {
+    "message": "excluded"
+  },
+  "popupNormalization": {
+    "message": "Normalization"
+  },
+  "popupProfile": {
+    "message": "Profile"
+  },
+  "popupGain": {
+    "message": "Gain"
+  },
+  "popupRms": {
+    "message": "RMS"
+  },
+  "popupMedia": {
+    "message": "Media"
+  },
+  "popupStreamStatus": {
+    "message": "Stream status"
+  },
+  "popupSafe": {
+    "message": "Safe"
+  },
+  "popupWarning": {
+    "message": "Watch"
+  },
+  "popupRisky": {
+    "message": "Risky"
+  },
+  "popupContainedPeaks": {
+    "message": "Peaks contained"
+  },
+  "popupDiagnostics": {
+    "message": "Diagnostics"
+  },
+  "popupProtectTab": {
+    "message": "Protect this tab"
+  },
+  "popupStopProtection": {
+    "message": "Stop protection"
+  },
+  "popupAutoDomain": {
+    "message": "Auto on this domain"
+  },
+  "popupOptions": {
+    "message": "Options"
+  },
+  "profileSoft": {
+    "message": "Soft"
+  },
+  "profileNormal": {
+    "message": "Normal"
+  },
+  "profileStream": {
+    "message": "Stream"
+  },
+  "profileObs": {
+    "message": "OBS Recommended"
+  },
+  "profileNight": {
+    "message": "Night"
+  },
+  "trustLocalOnly": {
+    "message": "Local"
+  },
+  "trustOpenSource": {
+    "message": "Open source"
+  },
+  "trustNoTracking": {
+    "message": "No tracking"
+  },
+  "diagnosticMediaDetected": {
+    "message": "Media detected"
+  },
+  "diagnosticPipelineActive": {
+    "message": "Pipeline active"
+  },
+  "diagnosticSiteExcluded": {
+    "message": "Site excluded"
+  },
+  "diagnosticSourceIncompatible": {
+    "message": "Source incompatible"
+  },
+  "diagnosticPermissionNeeded": {
+    "message": "Permission needed"
+  },
+  "diagnosticWaitingActivation": {
+    "message": "Waiting for activation"
+  },
+  "helpNormalization": {
+    "message": "Turns StreamVolume Guard Hub processing on or off for the active tab."
+  },
+  "helpProfile": {
+    "message": "Chooses the loudness behavior: softer, normal, streamer-safe or night listening."
+  },
+  "helpStreamStatus": {
+    "message": "Shows whether recent audio looks safe, close to the limit, or risky for a stream."
+  },
+  "helpContainedPeaks": {
+    "message": "Counts likely loud peaks that the safety limiter caught on this tab."
+  },
+  "helpGain": {
+    "message": "Current automatic volume change applied to the detected media."
+  },
+  "helpRms": {
+    "message": "Approximate average loudness level measured from the media signal."
+  },
+  "helpMedia": {
+    "message": "Detected media count compared with media currently routed through the audio pipeline."
+  },
+  "helpDiagnostics": {
+    "message": "Quick technical checks for streamers: media detection, active pipeline and blocked sources."
+  },
+  "helpActivateTab": {
+    "message": "Injects the extension into the current tab and starts processing detected media."
+  },
+  "helpAutoDomain": {
+    "message": "Requests permission to automatically activate StreamVolume Guard Hub on this domain."
+  },
+  "helpOptions": {
+    "message": "Opens advanced local settings such as target level, boost, limiter and domain lists."
+  },
+  "helpOptionsProfile": {
+    "message": "Default profile used when processing web audio."
+  },
+  "helpTargetRms": {
+    "message": "Target average loudness in dB. Higher values sound louder, lower values are calmer."
+  },
+  "helpMaxBoost": {
+    "message": "Maximum gain allowed when content is too quiet, to avoid noise and pumping."
+  },
+  "helpMaxReduction": {
+    "message": "Maximum gain reduction allowed when content is too loud."
+  },
+  "helpEnabled": {
+    "message": "Global switch saved locally. It controls whether normalization is allowed."
+  },
+  "helpCompressor": {
+    "message": "Reserved slot for the soft compressor. In V1 it stays neutral to avoid hidden browser level changes."
+  },
+  "helpLimiter": {
+    "message": "Safety limiter that catches peaks near the output ceiling to reduce clipping risk."
+  },
+  "helpAutoDomains": {
+    "message": "Domains where the extension can activate automatically after permission is granted."
+  },
+  "helpExcludedDomains": {
+    "message": "Domains where StreamVolume Guard Hub must stay bypassed."
+  },
+  "helpCapabilities": {
+    "message": "Shows which free or advanced capabilities are available in this build."
+  },
+  "warningTargetHot": {
+    "message": "Target level is hot; streams may feel louder than expected."
+  },
+  "warningBoostHigh": {
+    "message": "Max boost is above +12 dB and may raise noise or pumping."
+  },
+  "warningCompressorOff": {
+    "message": "Compressor is off: in V1, automatic gain and the limiter remain the main protections."
+  },
+  "warningLimiterOff": {
+    "message": "Safety limiter is off; sudden peaks can clip or surprise viewers."
+  },
+  "warningExcludedDomains": {
+    "message": "Some domains are excluded and will bypass protection."
+  },
+  "optionsProfileDescription": {
+    "message": "Chooses the default audio behavior."
+  },
+  "optionsTargetDescription": {
+    "message": "Target average level: higher sounds louder, lower sounds calmer."
+  },
+  "optionsBoostDescription": {
+    "message": "Limits how much quiet content can be raised."
+  },
+  "optionsReductionDescription": {
+    "message": "Limits how much loud content can be reduced."
+  },
+  "optionsAutoDomainsDescription": {
+    "message": "One domain per line to activate the extension without using the popup again."
+  },
+  "optionsExcludedDomainsDescription": {
+    "message": "Domains that should never be processed, even when the extension is active."
+  },
+  "optionsCapabilitiesDescription": {
+    "message": "Summarizes what is active in this version and what is planned for later."
+  },
+  "optionsDiagnosticsTitle": {
+    "message": "Local diagnostic"
+  },
+  "optionsDiagnosticsPrivacy": {
+    "message": "zero tracking"
+  },
+  "optionsDiagnosticsDescription": {
+    "message": "Generates a local JSON file that testers can manually attach to a bug report."
+  },
+  "optionsDiagnosticsExport": {
+    "message": "Export diagnostic JSON"
+  },
+  "popupPanic": {
+    "message": "Panic"
+  },
+  "popupPanicActive": {
+    "message": "Panic active"
+  },
+  "popupCopyDiagnostic": {
+    "message": "Copy diagnostic"
+  },
+  "popupProfileSite": {
+    "message": "Profile saved for this site"
+  },
+  "popupProfileRecommended": {
+    "message": "Recommended for this platform"
+  },
+  "popupProfileGlobal": {
+    "message": "Global profile"
+  },
+  "popupProfileSaved": {
+    "message": "Profile saved for this site"
+  },
+  "popupDiagnosticCopied": {
+    "message": "Diagnostic copied"
+  },
+  "popupDiagnosticCopyFailed": {
+    "message": "Copy failed"
+  },
+  "diagnosticSourceHtml": {
+    "message": "HTML media source"
+  },
+  "diagnosticSourceTabCapture": {
+    "message": "Tab capture source"
+  },
+  "diagnosticCaptureNoSignal": {
+    "message": "Capture active, but no audio signal detected"
+  },
+  "diagnosticPanicActive": {
+    "message": "Panic cap active"
+  },
+  "optionsObsCalibrationTitle": {
+    "message": "OBS calibration"
+  },
+  "optionsObsCalibrationBadge": {
+    "message": "pre-live"
+  },
+  "optionsObsCalibrationDescription": {
+    "message": "Play these sounds in the browser, capture the browser in OBS, then adjust your mix so loud moments keep headroom before red."
+  },
+  "optionsToneQuiet": {
+    "message": "Quiet sound"
+  },
+  "optionsToneNormal": {
+    "message": "Normal sound"
+  },
+  "optionsToneLoud": {
+    "message": "Loud sound"
+  },
+  "optionsToneVeryLoud": {
+    "message": "Very loud sound"
+  },
+  "optionsObsCalibrationNote": {
+    "message": "Recommendation: start with the OBS profile, then check that loud sounds stay controlled in the OBS meter."
+  },
+  "capabilitySafetyLimiter": {
+    "message": "Safety limiter"
+  },
+  "capabilityPerDomainProfiles": {
+    "message": "Per-domain profiles"
+  },
+  "capabilityTabCaptureFallback": {
+    "message": "Tab capture"
+  },
+  "capabilityPanicMode": {
+    "message": "Panic mode"
+  },
+  "capabilityDiagnosticCopy": {
+    "message": "Copyable diagnostic"
+  },
+  "capabilityGuidedObsCalibration": {
+    "message": "Guided OBS calibration"
+  },
+  "capabilityAdvancedLimiter": {
+    "message": "Advanced limiter"
+  },
+  "capabilitySettingsSync": {
+    "message": "Settings sync"
+  },
+  "capabilityAdvancedShortcuts": {
+    "message": "Advanced shortcuts"
+  },
+  "capabilityActive": {
+    "message": "active"
+  },
+  "capabilityLocked": {
+    "message": "planned"
+  },
+  "platformProfilesTitle": {
+    "message": "Platform profiles"
+  },
+  "platformProfilesDescription": {
+    "message": "Check which profile is applied to frequent platforms and remove local custom settings when needed."
+  },
+  "platformProfileRecommended": {
+    "message": "recommended"
+  },
+  "platformProfileCustomized": {
+    "message": "customized"
+  },
+  "platformProfileReset": {
+    "message": "Reset"
+  },
+  "platformProfileApplied": {
+    "message": "Applied"
+  },
+  "platformProfileRecommendedProfile": {
+    "message": "Recommended profile"
+  },
+  "platformProfileCustomProfile": {
+    "message": "Custom profile"
+  },
+  "targetVolumeTitle": {
+    "message": "Target average volume"
+  },
+  "targetVolumeDescription": {
+    "message": "Adjust the extension's average target with a quick local listening preview. The upper limit stays recoverable for very quiet sounds."
+  },
+  "targetVolumeQuiet": {
+    "message": "Quieter"
+  },
+  "targetVolumeLoud": {
+    "message": "Louder"
+  },
+  "targetVolumePlay": {
+    "message": "Listen"
+  },
+  "targetVolumeStop": {
+    "message": "Stop"
+  },
+  "targetVolumePreviewNote": {
+    "message": "Local sound generated by the browser to set the average volume before a live stream."
+  },
+  "optionsApplyIdle": {
+    "message": "Apply settings"
+  },
+  "optionsApplyCooldown": {
+    "message": "Wait"
+  },
+  "optionsApplySending": {
+    "message": "Sending..."
+  },
+  "optionsApplyApplied": {
+    "message": "Applied"
+  },
+  "optionsApplyError": {
+    "message": "Not applied"
+  },
+  "optionsApplySendingStatus": {
+    "message": "sending to open tabs..."
+  },
+  "optionsApplyAppliedStatus": {
+    "message": "settings applied to active tabs"
+  },
+  "optionsApplySavedNoTab": {
+    "message": "settings saved, no processed tab open"
+  },
+  "optionsApplyErrorStatus": {
+    "message": "settings saved, sending failed"
+  },
+  "optionsApplyDebounceStatus": {
+    "message": "Please wait before applying again"
+  },
+  "optionsSaveErrorStatus": {
+    "message": "save failed"
+  }
+}

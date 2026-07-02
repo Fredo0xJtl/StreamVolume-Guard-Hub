@@ -1,0 +1,17 @@
+{
+  "type": "extension_log",
+  "eventName": "tabcapture.status",
+  "message": "Tab capture status: no-signal",
+  "severity": "warn",
+  "browserProcess": "Brave",
+  "sourceId": "tab-capture:42",
+  "tabId": 42,
+  "siteName": "TikTok",
+  "status": "Unknown",
+  "controlSurface": "ObserveOnly",
+  "captureSignalState": "no-signal",
+  "targetRmsDb": -18,
+  "targetProfile": "Standard",
+  "lastSeen": "2026-07-02T18:00:00.000Z",
+  "origin": "BrowserExtension"
+}

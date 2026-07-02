@@ -1,0 +1,17 @@
+﻿{
+  "type": "browser_source_observed",
+  "browserProcess": "Chrome",
+  "sourceId": "tab-42:media-1",
+  "tabId": 42,
+  "siteName": "YouTube",
+  "title": "Example local title, optional for display only",
+  "currentLevel": 0.72,
+  "appliedGain": 0.83,
+  "targetRmsDb": -18,
+  "targetProfile": "Standard",
+  "status": "Risky",
+  "lastSeen": "2026-07-01T18:00:00.000Z",
+  "origin": "BrowserExtension",
+  "controlSurface": "BrowserGain",
+  "isControllable": true
+}

@@ -1,0 +1,50 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{C53DCA5D-CC4F-4A5B-BD02-F5DA822EEAB3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamVolumeGuard.Core", "src\StreamVolumeGuard.Core\StreamVolumeGuard.Core.csproj", "{B21085C6-694F-48FB-851B-E2FAAEAA045D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamVolumeGuard.WindowsAudio", "src\StreamVolumeGuard.WindowsAudio\StreamVolumeGuard.WindowsAudio.csproj", "{0F90DB06-7875-4D8E-BE2A-86ED3F75901B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamVolumeGuard.App", "src\StreamVolumeGuard.App\StreamVolumeGuard.App.csproj", "{B8A87DE1-3D58-4895-B767-3D1245D5FCE0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{78D06BF6-F593-4A72-B401-BD3A0E0E67A6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StreamVolumeGuard.Tests", "tests\StreamVolumeGuard.Tests\StreamVolumeGuard.Tests.csproj", "{462DFFC2-BEAA-406A-BADA-FA03B0DCCDF5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B21085C6-694F-48FB-851B-E2FAAEAA045D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B21085C6-694F-48FB-851B-E2FAAEAA045D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B21085C6-694F-48FB-851B-E2FAAEAA045D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B21085C6-694F-48FB-851B-E2FAAEAA045D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0F90DB06-7875-4D8E-BE2A-86ED3F75901B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0F90DB06-7875-4D8E-BE2A-86ED3F75901B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0F90DB06-7875-4D8E-BE2A-86ED3F75901B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0F90DB06-7875-4D8E-BE2A-86ED3F75901B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8A87DE1-3D58-4895-B767-3D1245D5FCE0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8A87DE1-3D58-4895-B767-3D1245D5FCE0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8A87DE1-3D58-4895-B767-3D1245D5FCE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8A87DE1-3D58-4895-B767-3D1245D5FCE0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{462DFFC2-BEAA-406A-BADA-FA03B0DCCDF5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{462DFFC2-BEAA-406A-BADA-FA03B0DCCDF5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{462DFFC2-BEAA-406A-BADA-FA03B0DCCDF5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{462DFFC2-BEAA-406A-BADA-FA03B0DCCDF5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B21085C6-694F-48FB-851B-E2FAAEAA045D} = {C53DCA5D-CC4F-4A5B-BD02-F5DA822EEAB3}
+		{0F90DB06-7875-4D8E-BE2A-86ED3F75901B} = {C53DCA5D-CC4F-4A5B-BD02-F5DA822EEAB3}
+		{B8A87DE1-3D58-4895-B767-3D1245D5FCE0} = {C53DCA5D-CC4F-4A5B-BD02-F5DA822EEAB3}
+		{462DFFC2-BEAA-406A-BADA-FA03B0DCCDF5} = {78D06BF6-F593-4A72-B401-BD3A0E0E67A6}
+	EndGlobalSection
+EndGlobal

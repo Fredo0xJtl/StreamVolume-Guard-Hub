@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StreamVolume Guard Hub Social Preview</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 1280px;
+      height: 640px;
+      overflow: hidden;
+      background: #101820;
+      color: #f5f7f9;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body {
+      display: grid;
+      grid-template-columns: 430px 1fr;
+      position: relative;
+    }
+
+    body::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 25%, rgba(47, 230, 129, 0.18), transparent 28%),
+        radial-gradient(circle at 82% 18%, rgba(255, 209, 102, 0.14), transparent 24%),
+        linear-gradient(135deg, #101820 0%, #162434 48%, #0d141c 100%);
+    }
+
+    .mark,
+    .copy {
+      position: relative;
+      z-index: 1;
+    }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      padding-left: 80px;
+    }
+
+    .shield {
+      width: 260px;
+      height: 260px;
+      filter: drop-shadow(0 24px 52px rgba(0, 0, 0, 0.38));
+    }
+
+    .copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 76px 94px 72px 38px;
+    }
+
+    .eyebrow {
+      color: #2fe681;
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0;
+      margin: 0 0 22px;
+    }
+
+    h1 {
+      color: #ffffff;
+      font-size: 76px;
+      line-height: 0.95;
+      letter-spacing: 0;
+      margin: 0;
+    }
+
+    .subtitle {
+      color: #d7e0e7;
+      font-size: 34px;
+      line-height: 1.22;
+      max-width: 650px;
+      margin: 30px 0 0;
+    }
+
+    .signals {
+      display: flex;
+      gap: 16px;
+      margin-top: 40px;
+    }
+
+    .signal {
+      border: 2px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      padding: 14px 18px;
+      font-size: 24px;
+      font-weight: 700;
+      color: #f8fbfd;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .safe {
+      border-color: rgba(47, 230, 129, 0.7);
+      color: #9af0bd;
+    }
+
+    .risk {
+      border-color: rgba(255, 209, 102, 0.7);
+      color: #ffd166;
+    }
+  </style>
+</head>
+<body>
+  <div class="mark">
+    <svg class="shield" viewBox="0 0 128 128" role="img" aria-label="Guard Signal">
+      <defs>
+        <linearGradient id="shield" x1="24" y1="12" x2="104" y2="116" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#1f3244"/>
+          <stop offset="0.58" stop-color="#17283a"/>
+          <stop offset="1" stop-color="#0d141c"/>
+        </linearGradient>
+      </defs>
+      <path fill="url(#shield)" d="M64 8 104 22v34c0 28.9-16.2 50.3-40 62-23.8-11.7-40-33.1-40-62V22L64 8Z"/>
+      <path fill="none" stroke="#9fb2c4" stroke-width="6" stroke-linejoin="round" d="M64 18 94 29v27c0 21.5-10.5 38.7-30 49.7C44.5 94.7 34 77.5 34 56V29l30-11Z" opacity=".9"/>
+      <path fill="none" stroke="#2fe681" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M32 67h16l8-20 16 40 9-20h15"/>
+      <path fill="none" stroke="#ffd166" stroke-linecap="round" stroke-width="6" d="M81 47h17"/>
+    </svg>
+  </div>
+  <main class="copy">
+    <p class="eyebrow">Guard Signal pour streamers</p>
+    <h1>StreamVolume Guard Hub</h1>
+    <p class="subtitle">Protège les lives des pics audio et stabilise le volume entre plateformes vidéo.</p>
+    <div class="signals" aria-hidden="true">
+      <span class="signal safe">Safe</span>
+      <span class="signal risk">Risky</span>
+      <span class="signal">Local-first</span>
+      <span class="signal">Open source</span>
+    </div>
+  </main>
+</body>
+</html>

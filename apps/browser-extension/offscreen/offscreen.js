@@ -1,0 +1,375 @@
+(function initOffscreen(root) {
+  const WLG = root.StreamVolumeGuard;
+  const Settings = WLG.Settings;
+  const Normalizer = WLG.Normalizer;
+  const captures = new Map();
+  const CAPTURE_NO_SIGNAL_WATCHDOG_MS = 1800;
+  const MAX_CAPTURE_RESTARTS = 1;
+
+  function getCaptureHealth(stream) {
+    const audioTracks = stream && stream.getAudioTracks ? stream.getAudioTracks() : [];
+    const firstTrack = audioTracks[0] || null;
+    return {
+      audioTrackCount: audioTracks.length,
+      captureTrackState: firstTrack ? firstTrack.readyState : "missing",
+      captureMuted: firstTrack ? Boolean(firstTrack.muted) : true
+    };
+  }
+
+  function getCaptureSignalState(captureHealth, nextState, startedAt) {
+    if (
+      Number(captureHealth.audioTrackCount) < 1 ||
+      captureHealth.captureTrackState === "ended" ||
+      captureHealth.captureMuted
+    ) {
+      return "unavailable";
+    }
+
+    if (Number(nextState.rmsDb) > -100) return "signal";
+
+    const elapsedMs = Date.now() - Number(startedAt || Date.now());
+    return elapsedMs >= CAPTURE_NO_SIGNAL_WATCHDOG_MS ? "no-signal" : "starting";
+  }
+
+  function buildNormalizerStatus(stream, nextState, startedAt, restartCount, restartDeferred) {
+    const captureHealth = getCaptureHealth(stream);
+    let captureSignalState = getCaptureSignalState(captureHealth, nextState, startedAt);
+    if (restartDeferred && captureSignalState === "no-signal") {
+      captureSignalState = "waiting-for-audio";
+    }
+    const captureHealthError = captureHealth.audioTrackCount < 1 ||
+      captureHealth.captureTrackState === "ended" ||
+      captureHealth.captureMuted
+      ? "Capture d'onglet active, mais aucun signal audio exploitable n'est detecte."
+      : "";
+    const captureSignalError = captureSignalState === "no-signal"
+      ? "Capture d'onglet active, piste audio live, mais aucun signal Web Audio detecte."
+      : "";
+
+    return {
+      gainDb: nextState.gainDb,
+      targetRmsDb: nextState.targetRmsDb,
+      maxBoostDb: nextState.maxBoostDb,
+      rmsDb: nextState.rmsDb,
+      outputRmsDb: nextState.outputRmsDb,
+      outputPeakDb: nextState.outputPeakDb,
+      peakDb: nextState.peakDb,
+      predictedPeakDb: nextState.predictedPeakDb,
+      contextState: nextState.contextState,
+      ...captureHealth,
+      captureSignalState,
+      captureRestartCount: Number(restartCount) || 0,
+      captureRestartDeferred: Boolean(restartDeferred),
+      riskLevel: nextState.riskLevel,
+      containedPeakCount: nextState.containedPeakCount,
+      activeProfile: nextState.profileId,
+      panicActive: nextState.panicActive,
+      lastError: captureHealthError || captureSignalError
+    };
+  }
+
+  function baseStatus(tabId, site, settings, restartCount) {
+    return {
+      ok: true,
+      installed: true,
+      enabled: true,
+      mode: "tab-capture",
+      sourceType: "tab-capture",
+      panicActive: false,
+      site: Settings.normalizeDomain(site),
+      activeProfile: settings.activeProfile,
+      excluded: false,
+      canInject: true,
+      canCaptureTab: true,
+      mediaDetected: 1,
+      mediaProcessed: 1,
+      skippedAlreadyProcessed: 0,
+      gainDb: 0,
+      targetRmsDb: settings.targetRmsDb,
+      maxBoostDb: settings.maxBoostDb,
+      rmsDb: -120,
+      outputRmsDb: -120,
+      outputPeakDb: -120,
+      peakDb: -120,
+      predictedPeakDb: -120,
+      contextState: "unknown",
+      audioTrackCount: 0,
+      captureTrackState: "pending",
+      captureMuted: false,
+      captureSignalState: "starting",
+      captureRestartCount: Number(restartCount) || 0,
+      captureRestartDeferred: false,
+      riskLevel: "safe",
+      containedPeakCount: 0,
+      lastError: "",
+      updatedAt: Date.now(),
+      tabId
+    };
+  }
+
+  function postStatus(tabId, status) {
+    chrome.runtime.sendMessage({ type: "WLG_CAPTURE_STATUS", tabId, status });
+  }
+
+  function updateStatus(tabId, partial) {
+    const capture = captures.get(tabId);
+    if (!capture) return null;
+    capture.status = {
+      ...capture.status,
+      ...partial,
+      updatedAt: Date.now()
+    };
+    postStatus(tabId, capture.status);
+    return capture.status;
+  }
+
+  function requestCaptureRestart(tabId, status) {
+    const capture = captures.get(tabId);
+    if (!capture) return;
+    if (capture.restartRequested) return;
+    if (capture.restartDeferred) return;
+    if (status.captureSignalState !== "no-signal") return;
+
+    const restartCount = Number(capture.restartCount) || 0;
+    if (restartCount >= MAX_CAPTURE_RESTARTS) return;
+
+    const nextRestartCount = restartCount + 1;
+    capture.restartRequested = true;
+    updateStatus(tabId, {
+      captureSignalState: "restart-requested",
+      captureRestartCount: restartCount,
+      captureRestartDeferred: false,
+      lastError: "Capture d'onglet silencieuse, relance automatique demandee."
+    });
+
+    chrome.runtime.sendMessage({
+      type: "WLG_RESTART_TAB_CAPTURE",
+      tabId,
+      reason: "no-signal",
+      restartCount: nextRestartCount
+    }, (response) => {
+      const currentCapture = captures.get(tabId);
+      if (chrome.runtime.lastError) {
+        if (currentCapture) currentCapture.restartRequested = false;
+        updateStatus(tabId, {
+          lastError: chrome.runtime.lastError.message || "Relance automatique de capture impossible."
+        });
+        return;
+      }
+
+      if (response && response.deferred) {
+        if (currentCapture) {
+          currentCapture.restartRequested = false;
+          currentCapture.restartDeferred = true;
+        }
+        updateStatus(tabId, response.status || {
+          captureSignalState: "waiting-for-audio",
+          captureRestartCount: restartCount,
+          captureRestartDeferred: true,
+          lastError: ""
+        });
+        return;
+      }
+
+      if (!response || response.ok !== false) return;
+      if (currentCapture) currentCapture.restartRequested = false;
+      updateStatus(tabId, {
+        lastError: response.error || "Relance automatique de capture impossible."
+      });
+    });
+  }
+
+  function handleNormalizerState(tabId, stream, nextState, startedAt, restartCount) {
+    const capture = captures.get(tabId);
+    const updatedStatus = updateStatus(
+      tabId,
+      buildNormalizerStatus(stream, nextState, startedAt, restartCount, capture && capture.restartDeferred)
+    );
+    if (!updatedStatus) return null;
+
+    if (updatedStatus.captureSignalState === "signal" && capture) {
+      capture.restartRequested = false;
+      capture.restartDeferred = false;
+      if (updatedStatus.captureRestartDeferred || updatedStatus.lastError) {
+        return updateStatus(tabId, { captureRestartDeferred: false, lastError: "" });
+      }
+      return updatedStatus;
+    }
+
+    requestCaptureRestart(tabId, updatedStatus);
+    return updatedStatus;
+  }
+
+  function stopCapture(tabId) {
+    const capture = captures.get(tabId);
+    if (!capture) return { ok: true, enabled: false };
+
+    try {
+      capture.normalizer.stop();
+    } catch (error) {
+      // Best-effort cleanup when the tab or offscreen document is closing.
+    }
+
+    try {
+      capture.stream.getTracks().forEach((track) => track.stop());
+    } catch (error) {
+      // Some browsers already stop tracks when capture ends.
+    }
+
+    captures.delete(tabId);
+    const status = { ...capture.status, enabled: false, mediaProcessed: 0, sourceType: "none", updatedAt: Date.now() };
+    postStatus(tabId, status);
+    return { ok: true, status };
+  }
+
+  function updateCaptureSettingsFromSavedSettings(tabId, savedSettings, site) {
+    const capture = captures.get(tabId);
+    if (!capture) return null;
+
+    const captureSite = site || capture.site;
+    if (Settings.isDomainExcluded(captureSite, Settings.normalizeSettings(savedSettings))) {
+      stopCapture(tabId);
+      return null;
+    }
+
+    const settings = Settings.getSettingsForDomain(savedSettings, captureSite);
+    capture.settings = settings;
+    capture.site = captureSite;
+    capture.normalizer.updateSettings(settings, { immediate: true });
+    return updateStatus(tabId, {
+      site: Settings.normalizeDomain(capture.site),
+      activeProfile: settings.activeProfile,
+      targetRmsDb: settings.targetRmsDb,
+      maxBoostDb: settings.maxBoostDb
+    });
+  }
+
+  async function startCapture(message) {
+    const tabId = Number(message.tabId);
+    if (!tabId || !message.streamId) {
+      return { ok: false, error: "Invalid tab capture request." };
+    }
+
+    stopCapture(tabId);
+
+    const settings = Settings.getSettingsForDomain(message.settings, message.site);
+    const restartCount = Number(message.restartCount) || 0;
+    const status = baseStatus(tabId, message.site, settings, restartCount);
+    let stream = null;
+    let normalizer = null;
+    let startedAt = Date.now();
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: "tab",
+            chromeMediaSourceId: message.streamId
+          }
+        },
+        video: false
+      });
+      startedAt = Date.now();
+      Object.assign(status, getCaptureHealth(stream));
+      normalizer = Normalizer.createMediaStreamNormalizer(stream, settings, {
+        onState(nextState) {
+          handleNormalizerState(tabId, stream, nextState, startedAt, restartCount);
+        }
+      });
+
+      captures.set(tabId, {
+        stream,
+        normalizer,
+        settings,
+        site: message.site,
+        status,
+        startedAt,
+        restartCount,
+        restartRequested: false,
+        restartDeferred: false
+      });
+      stream.getTracks().forEach((track) => {
+        track.addEventListener("ended", () => stopCapture(tabId), { once: true });
+      });
+
+      await normalizer.start();
+      const startedStatus = handleNormalizerState(tabId, stream, normalizer.getState(), startedAt, restartCount);
+      return { ok: true, status: startedStatus || captures.get(tabId).status };
+    } catch (error) {
+      if (captures.has(tabId)) {
+        stopCapture(tabId);
+      } else {
+        try {
+          if (normalizer) normalizer.stop();
+        } catch (cleanupError) {
+          // Best-effort cleanup after a failed capture startup.
+        }
+        try {
+          if (stream) stream.getTracks().forEach((track) => track.stop());
+        } catch (cleanupError) {
+          // Best-effort cleanup after a failed capture startup.
+        }
+      }
+      const failedStatus = { ...status, ok: false, enabled: false, mediaProcessed: 0, lastError: error.message };
+      postStatus(tabId, failedStatus);
+      return { ok: false, error: error.message, status: failedStatus };
+    }
+  }
+
+  function updateSettings(message) {
+    const tabId = Number(message.tabId);
+    const status = updateCaptureSettingsFromSavedSettings(tabId, message.settings, message.site);
+    if (!status) return { ok: true, enabled: false };
+    return { ok: true, status };
+  }
+
+  function setPanic(message) {
+    const tabId = Number(message.tabId);
+    const capture = captures.get(tabId);
+    if (!capture) return { ok: true, enabled: false };
+    capture.normalizer.setPanic(Boolean(message.active));
+    const status = updateStatus(tabId, { panicActive: Boolean(message.active) });
+    return { ok: true, status };
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.target !== "offscreen") return false;
+
+    if (message.type === "WLG_START_TAB_CAPTURE") {
+      startCapture(message).then(sendResponse);
+      return true;
+    }
+
+    if (message.type === "WLG_STOP_TAB_CAPTURE") {
+      sendResponse(stopCapture(Number(message.tabId)));
+      return false;
+    }
+
+    if (message.type === "WLG_UPDATE_CAPTURE_SETTINGS") {
+      sendResponse(updateSettings(message));
+      return false;
+    }
+
+    if (message.type === "WLG_SET_CAPTURE_PANIC") {
+      sendResponse(setPanic(message));
+      return false;
+    }
+
+    return false;
+  });
+
+  if (root.chrome && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local") return;
+      if (!changes[Settings.SETTINGS_KEY] && !changes[Settings.LEGACY_SETTINGS_KEY]) return;
+
+      Settings.getSettings().then((savedSettings) => {
+        captures.forEach((capture, tabId) => {
+          updateCaptureSettingsFromSavedSettings(tabId, savedSettings);
+        });
+      }).catch((error) => {
+        console.warn("StreamVolume Guard Hub could not refresh tab capture settings.", error);
+      });
+    });
+  }
+})(globalThis);

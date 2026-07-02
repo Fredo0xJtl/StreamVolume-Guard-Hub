@@ -1,0 +1,31 @@
+# Les builds locaux et packages testeurs ne sont pas versionnes dans le repo hub.
+
+# Dependencies
+node_modules/
+
+# Logs and local runtime output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local release bundles and signing artifacts
+*.zip
+*.crx
+*.pem
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local Codex metadata
+.codex/
+.agents/
+.superpowers/
+.docs/
+
+# Local Graphify outputs
+graphify-out/
+.graphifyignore

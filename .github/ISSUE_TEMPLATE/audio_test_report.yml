@@ -1,0 +1,77 @@
+name: Audio test report
+description: Report a real test pass with YouTube, TikTok, Spotify Web, Discord, VLC, OBS, or another source.
+title: "[Test]: "
+labels: [test-report]
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        Windows:
+        Output device:
+        Browser:
+        Extension loaded: yes/no
+        OBS open: yes/no
+        App version or commit:
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source tested
+      options:
+        - YouTube
+        - TikTok
+        - Spotify Web / Deezer Web
+        - Spotify desktop / Deezer desktop
+        - Discord
+        - VLC / local player
+        - OBS
+        - Browser + desktop app combined
+        - Multiple browser tabs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: classification
+    attributes:
+      label: Classification observed
+      description: Copy the app values after waiting 10-15 seconds.
+      placeholder: |
+        origin:
+        controlSurface:
+        status:
+        isControllable:
+        Visible in Windows mixer: yes/no
+        Visible in StreamVolume Guard Hub Windows sources: yes/no
+        Visible in StreamVolume Guard Hub browser sub-sources: yes/no
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior observed
+      placeholder: |
+        Observation mode would_apply visible: yes/no
+        Auto enabled: yes/no
+        Volume lowered progressively: yes/no
+        Volume raised progressively: yes/no
+        Manual control respected: yes/no
+        Exclusion respected: yes/no
+        Panic respected: yes/no
+        Any mute/crackle/pumping/crash:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs copied for this source
+      description: Use the app button "Copier logs récents". Remove sensitive data before posting.
+  - type: textarea
+    id: conclusion
+    attributes:
+      label: Conclusion
+      placeholder: Valid / Needs correction / Blocked, and why.
+    validations:
+      required: true

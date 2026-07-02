@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest a product or technical improvement.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What streamer problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Desktop Windows audio sessions
+        - Browser extension sources
+        - Local bridge / protocol
+        - UI / mixer workflow
+        - OBS calibration
+        - Panic / safety
+        - Packaging tester Windows
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: product-guardrails
+    attributes:
+      label: Product guardrails
+      options:
+        - label: This does not require a custom audio driver for V1.
+        - label: This does not require telemetry, account, cloud sync, or audio upload.
+        - label: This does not rely on hard-coded patches for one site or app.
+        - label: Non-controllable sources can still be shown honestly as ObserveOnly or Unknown.
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks or tradeoffs
+      description: Include privacy, complexity, maintenance, UX, or audio-quality concerns.

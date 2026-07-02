@@ -1,0 +1,394 @@
+{
+  "extensionName": {
+    "message": "StreamVolume Guard Hub",
+    "description": "Nom public de l'extension."
+  },
+  "extensionDescription": {
+    "message": "Protection audio open source pour streamers. Volume web stabilisé localement, sans tracker, sans collecte de données.",
+    "description": "Description courte affichée par le navigateur et les stores."
+  },
+  "popupUnknownSite": {
+    "message": "site inconnu"
+  },
+  "popupReady": {
+    "message": "prêt"
+  },
+  "popupActive": {
+    "message": "actif"
+  },
+  "popupExcluded": {
+    "message": "exclu"
+  },
+  "popupNormalization": {
+    "message": "Normalisation"
+  },
+  "popupProfile": {
+    "message": "Profil"
+  },
+  "popupGain": {
+    "message": "Gain"
+  },
+  "popupRms": {
+    "message": "RMS"
+  },
+  "popupMedia": {
+    "message": "Médias"
+  },
+  "popupStreamStatus": {
+    "message": "État stream"
+  },
+  "popupSafe": {
+    "message": "Safe"
+  },
+  "popupWarning": {
+    "message": "À surveiller"
+  },
+  "popupRisky": {
+    "message": "Risque"
+  },
+  "popupContainedPeaks": {
+    "message": "Pics contenus"
+  },
+  "popupDiagnostics": {
+    "message": "Diagnostics"
+  },
+  "popupProtectTab": {
+    "message": "Protéger cet onglet"
+  },
+  "popupStopProtection": {
+    "message": "Arrêter la protection"
+  },
+  "popupAutoDomain": {
+    "message": "Auto sur ce domaine"
+  },
+  "popupOptions": {
+    "message": "Options"
+  },
+  "profileSoft": {
+    "message": "Doux"
+  },
+  "profileNormal": {
+    "message": "Normal"
+  },
+  "profileStream": {
+    "message": "Stream"
+  },
+  "profileObs": {
+    "message": "OBS recommandé"
+  },
+  "profileNight": {
+    "message": "Nuit"
+  },
+  "trustLocalOnly": {
+    "message": "Local"
+  },
+  "trustOpenSource": {
+    "message": "Open source"
+  },
+  "trustNoTracking": {
+    "message": "Sans tracking"
+  },
+  "diagnosticMediaDetected": {
+    "message": "Média détecté"
+  },
+  "diagnosticPipelineActive": {
+    "message": "Pipeline actif"
+  },
+  "diagnosticSiteExcluded": {
+    "message": "Site exclu"
+  },
+  "diagnosticSourceIncompatible": {
+    "message": "Source incompatible"
+  },
+  "diagnosticPermissionNeeded": {
+    "message": "Permission requise"
+  },
+  "diagnosticWaitingActivation": {
+    "message": "Activation en attente"
+  },
+  "helpNormalization": {
+    "message": "Active ou coupe le traitement StreamVolume Guard Hub sur l'onglet actif."
+  },
+  "helpProfile": {
+    "message": "Choisit le comportement audio : doux, normal, stream ou nuit."
+  },
+  "helpStreamStatus": {
+    "message": "Indique si l'audio récent semble sûr, proche de la limite ou risqué pour un live."
+  },
+  "helpContainedPeaks": {
+    "message": "Compte les pics probablement retenus par le limiteur de sécurité sur cet onglet."
+  },
+  "helpGain": {
+    "message": "Changement de volume automatique actuellement appliqué au média détecté."
+  },
+  "helpRms": {
+    "message": "Niveau moyen approximatif mesuré sur le signal audio du média."
+  },
+  "helpMedia": {
+    "message": "Compare les médias détectés avec ceux qui passent dans la chaîne audio."
+  },
+  "helpDiagnostics": {
+    "message": "Vérifications rapides pour streamer : détection média, pipeline actif et sources bloquées."
+  },
+  "helpActivateTab": {
+    "message": "Injecte l'extension dans l'onglet courant et lance le traitement des médias détectés."
+  },
+  "helpAutoDomain": {
+    "message": "Demande l'autorisation d'activer automatiquement StreamVolume Guard Hub sur ce domaine."
+  },
+  "helpOptions": {
+    "message": "Ouvre les réglages locaux avancés : cible, boost, limiteur et listes de domaines."
+  },
+  "helpOptionsProfile": {
+    "message": "Profil par défaut utilisé pour traiter l'audio web."
+  },
+  "helpTargetRms": {
+    "message": "Volume moyen cible en dB. Plus la valeur est haute, plus le rendu est fort."
+  },
+  "helpMaxBoost": {
+    "message": "Gain maximum autorisé quand le contenu est trop faible, pour éviter le bruit et le pompage."
+  },
+  "helpMaxReduction": {
+    "message": "Réduction maximale autorisée quand le contenu est trop fort."
+  },
+  "helpEnabled": {
+    "message": "Interrupteur global sauvegardé localement. Il autorise ou bloque la normalisation."
+  },
+  "helpCompressor": {
+    "message": "Emplacement réservé au compresseur doux. En V1, il reste neutre pour éviter les variations cachées du navigateur."
+  },
+  "helpLimiter": {
+    "message": "Limiteur de sécurité qui retient les pics proches du plafond de sortie."
+  },
+  "helpAutoDomains": {
+    "message": "Domaines où l'extension peut s'activer automatiquement après autorisation."
+  },
+  "helpExcludedDomains": {
+    "message": "Domaines où StreamVolume Guard Hub doit rester désactivé."
+  },
+  "helpCapabilities": {
+    "message": "Affiche les capacités gratuites ou avancées disponibles dans cette version."
+  },
+  "warningTargetHot": {
+    "message": "Cible RMS élevée : le live peut sonner trop fort."
+  },
+  "warningBoostHigh": {
+    "message": "Boost max au-dessus de +12 dB : risque de bruit ou de pompage."
+  },
+  "warningCompressorOff": {
+    "message": "Compresseur désactivé : en V1, le gain automatique et le limiteur restent les protections principales."
+  },
+  "warningLimiterOff": {
+    "message": "Limiteur coupé : les pics peuvent clipper ou surprendre le live."
+  },
+  "warningExcludedDomains": {
+    "message": "Certains domaines sont exclus et contournent la protection."
+  },
+  "optionsProfileDescription": {
+    "message": "Choisit le comportement audio appliqué par défaut."
+  },
+  "optionsTargetDescription": {
+    "message": "Niveau moyen visé : plus haut sonne plus fort, plus bas sonne plus calme."
+  },
+  "optionsBoostDescription": {
+    "message": "Limite la remontée des contenus trop faibles."
+  },
+  "optionsReductionDescription": {
+    "message": "Limite la baisse appliquée aux contenus trop forts."
+  },
+  "optionsAutoDomainsDescription": {
+    "message": "Un domaine par ligne pour activer l'extension sans repasser par la popup."
+  },
+  "optionsExcludedDomainsDescription": {
+    "message": "Domaines à ne jamais traiter, même si l'extension est active."
+  },
+  "optionsCapabilitiesDescription": {
+    "message": "Résume ce qui est actif dans cette version et ce qui reste prévu pour plus tard."
+  },
+  "optionsDiagnosticsTitle": {
+    "message": "Diagnostic local"
+  },
+  "optionsDiagnosticsPrivacy": {
+    "message": "zéro tracking"
+  },
+  "optionsDiagnosticsDescription": {
+    "message": "Génère un fichier JSON local que les testeurs peuvent joindre manuellement à un rapport de bug."
+  },
+  "optionsDiagnosticsExport": {
+    "message": "Exporter le diagnostic JSON"
+  },
+  "popupPanic": {
+    "message": "Panic"
+  },
+  "popupPanicActive": {
+    "message": "Panic actif"
+  },
+  "popupCopyDiagnostic": {
+    "message": "Copier diagnostic"
+  },
+  "popupProfileSite": {
+    "message": "Profil enregistré pour ce site"
+  },
+  "popupProfileRecommended": {
+    "message": "Recommandé pour cette plateforme"
+  },
+  "popupProfileGlobal": {
+    "message": "Profil global"
+  },
+  "popupProfileSaved": {
+    "message": "Profil enregistré pour ce site"
+  },
+  "popupDiagnosticCopied": {
+    "message": "Diagnostic copié"
+  },
+  "popupDiagnosticCopyFailed": {
+    "message": "Copie impossible"
+  },
+  "diagnosticSourceHtml": {
+    "message": "Source média HTML"
+  },
+  "diagnosticSourceTabCapture": {
+    "message": "Source capture onglet"
+  },
+  "diagnosticCaptureNoSignal": {
+    "message": "Capture active, mais aucun signal audio détecté"
+  },
+  "diagnosticPanicActive": {
+    "message": "Cap Panic actif"
+  },
+  "optionsObsCalibrationTitle": {
+    "message": "Calibration OBS"
+  },
+  "optionsObsCalibrationBadge": {
+    "message": "avant live"
+  },
+  "optionsObsCalibrationDescription": {
+    "message": "Lance ces sons dans le navigateur, capture le navigateur dans OBS, puis ajuste ton mix pour garder une marge avant le rouge."
+  },
+  "optionsToneQuiet": {
+    "message": "Son faible"
+  },
+  "optionsToneNormal": {
+    "message": "Son normal"
+  },
+  "optionsToneLoud": {
+    "message": "Son fort"
+  },
+  "optionsToneVeryLoud": {
+    "message": "Son très fort"
+  },
+  "optionsObsCalibrationNote": {
+    "message": "Recommandation : commence avec le profil OBS, puis vérifie que les sons forts restent contrôlés dans le vumètre OBS."
+  },
+  "capabilitySafetyLimiter": {
+    "message": "Limiteur de sécurité"
+  },
+  "capabilityPerDomainProfiles": {
+    "message": "Profils par domaine"
+  },
+  "capabilityTabCaptureFallback": {
+    "message": "Capture d'onglet"
+  },
+  "capabilityPanicMode": {
+    "message": "Mode Panic"
+  },
+  "capabilityDiagnosticCopy": {
+    "message": "Diagnostic copiable"
+  },
+  "capabilityGuidedObsCalibration": {
+    "message": "Calibration OBS guidée"
+  },
+  "capabilityAdvancedLimiter": {
+    "message": "Limiteur avancé"
+  },
+  "capabilitySettingsSync": {
+    "message": "Synchronisation"
+  },
+  "capabilityAdvancedShortcuts": {
+    "message": "Raccourcis avancés"
+  },
+  "capabilityActive": {
+    "message": "actif"
+  },
+  "capabilityLocked": {
+    "message": "prévu"
+  },
+  "platformProfilesTitle": {
+    "message": "Profils par plateforme"
+  },
+  "platformProfilesDescription": {
+    "message": "Vérifie le profil appliqué aux plateformes fréquentes et retire les réglages personnalisés si besoin."
+  },
+  "platformProfileRecommended": {
+    "message": "recommandé"
+  },
+  "platformProfileCustomized": {
+    "message": "personnalisé"
+  },
+  "platformProfileReset": {
+    "message": "Réinitialiser"
+  },
+  "platformProfileApplied": {
+    "message": "Appliqué"
+  },
+  "platformProfileRecommendedProfile": {
+    "message": "Profil recommandé"
+  },
+  "platformProfileCustomProfile": {
+    "message": "Profil personnalisé"
+  },
+  "targetVolumeTitle": {
+    "message": "Volume moyen voulu"
+  },
+  "targetVolumeDescription": {
+    "message": "Ajuste la cible moyenne de l'extension avec une écoute locale rapide. La limite haute reste récupérable pour les sons très faibles."
+  },
+  "targetVolumeQuiet": {
+    "message": "Plus calme"
+  },
+  "targetVolumeLoud": {
+    "message": "Plus fort"
+  },
+  "targetVolumePlay": {
+    "message": "Écouter"
+  },
+  "targetVolumeStop": {
+    "message": "Stop"
+  },
+  "targetVolumePreviewNote": {
+    "message": "Son local généré par le navigateur pour régler le volume moyen avant un live."
+  },
+  "optionsApplyIdle": {
+    "message": "Appliquer les réglages"
+  },
+  "optionsApplyCooldown": {
+    "message": "Patientez"
+  },
+  "optionsApplySending": {
+    "message": "Envoi..."
+  },
+  "optionsApplyApplied": {
+    "message": "Appliqué"
+  },
+  "optionsApplyError": {
+    "message": "Non appliqué"
+  },
+  "optionsApplySendingStatus": {
+    "message": "envoi aux onglets ouverts..."
+  },
+  "optionsApplyAppliedStatus": {
+    "message": "réglages appliqués aux onglets actifs"
+  },
+  "optionsApplySavedNoTab": {
+    "message": "réglages enregistrés, aucun onglet traité ouvert"
+  },
+  "optionsApplyErrorStatus": {
+    "message": "réglages enregistrés, envoi impossible"
+  },
+  "optionsApplyDebounceStatus": {
+    "message": "Patientez avant de valider"
+  },
+  "optionsSaveErrorStatus": {
+    "message": "sauvegarde impossible"
+  }
+}

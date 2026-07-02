@@ -1,0 +1,844 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>StreamVolume Guard Hub Technical Smoke</title>
+  </head>
+  <body>
+    <audio id="smokeAudio" controls></audio>
+    <div id="extensionTarget">--</div>
+    <div id="extensionOutputRms">--</div>
+    <div id="extensionOutputPeak">--</div>
+
+    <script>
+      window.__wlgStorage = {};
+      window.chrome = {
+        runtime: {
+          lastError: null,
+          onMessage: {
+            addListener() {}
+          }
+        },
+        storage: {
+          local: {
+            get(keys, callback) {
+              if (Array.isArray(keys)) {
+                const result = {};
+                keys.forEach((key) => {
+                  result[key] = window.__wlgStorage[key];
+                });
+                callback(result);
+                return;
+              }
+              if (typeof keys === "string") {
+                callback({ [keys]: window.__wlgStorage[keys] });
+                return;
+              }
+              callback({ ...window.__wlgStorage });
+            },
+            set(values, callback) {
+              Object.assign(window.__wlgStorage, values);
+              if (callback) callback();
+            },
+            remove(keys, callback) {
+              const list = Array.isArray(keys) ? keys : [keys];
+              list.forEach((key) => delete window.__wlgStorage[key]);
+              if (callback) callback();
+            }
+          }
+        }
+      };
+    </script>
+
+    <script src="../storage/settings.js"></script>
+    <script src="../license/capabilities.js"></script>
+    <script src="../audio/analyser.js"></script>
+    <script src="../audio/limiter.js"></script>
+    <script src="../audio/stream-status.js"></script>
+    <script src="../audio/normalizer.js"></script>
+    <script src="../content.js"></script>
+
+    <script>
+      const objectUrls = new Map();
+      const QUIET_AMPLITUDE = 0.001;
+      const LOUD_AMPLITUDE = 0.01001186529700907;
+      const VERY_LOUD_AMPLITUDE = 0.8912509381337456;
+      const QUALITY_RMS_SPREAD_DB = 0.5;
+      const QUALITY_PEAK_SPREAD_DB = 1.5;
+      const CALM_TARGET_RMS_DB = -25;
+      const REAL_WORLD_MIN_OUTPUT_RMS_DB = -22;
+      const REAL_WORLD_OUTPUT_SETTLE_TIMEOUT_MS = 8000;
+      const EARLY_TRANSIENT_AVERAGE_TOLERANCE_DB = 0.95;
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      async function waitFor(predicate, description, timeoutMs = 5000) {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < timeoutMs) {
+          const value = await predicate();
+          if (value) return value;
+          await wait(80);
+        }
+        throw new Error(`Timed out waiting for ${description}`);
+      }
+
+      async function collectSettledOutputStats(durationMs, warmupMs = 240) {
+        const startedAt = Date.now();
+        const collectAfter = startedAt + warmupMs;
+        const samples = [];
+        while (Date.now() - startedAt < durationMs) {
+          const status = window.StreamVolumeGuard.Content.getStatus();
+          if (
+            Number.isFinite(status.outputRmsDb) &&
+            status.updatedAt >= collectAfter &&
+            Date.now() >= collectAfter
+          ) {
+            samples.push(status);
+          }
+          await wait(120);
+        }
+
+        if (!samples.length) {
+          throw new Error("No settled output samples were collected");
+        }
+
+        const outputValues = samples.map((status) => status.outputRmsDb);
+        const outputPeakValues = samples
+          .map((status) => status.outputPeakDb)
+          .filter((value) => Number.isFinite(value));
+        const averageOutputRmsDb = outputValues.reduce((sum, value) => sum + value, 0) / outputValues.length;
+        const averageOutputPeakDb = outputPeakValues.length
+          ? outputPeakValues.reduce((sum, value) => sum + value, 0) / outputPeakValues.length
+          : -120;
+        return {
+          averageOutputRmsDb: Number(averageOutputRmsDb.toFixed(2)),
+          minOutputRmsDb: Number(Math.min(...outputValues).toFixed(2)),
+          maxOutputRmsDb: Number(Math.max(...outputValues).toFixed(2)),
+          outputRangeDb: Number((Math.max(...outputValues) - Math.min(...outputValues)).toFixed(2)),
+          averageOutputPeakDb: Number(averageOutputPeakDb.toFixed(2)),
+          minOutputPeakDb: Number((outputPeakValues.length ? Math.min(...outputPeakValues) : -120).toFixed(2)),
+          maxOutputPeakDb: Number((outputPeakValues.length ? Math.max(...outputPeakValues) : -120).toFixed(2)),
+          outputPeakRangeDb: Number((outputPeakValues.length ? Math.max(...outputPeakValues) - Math.min(...outputPeakValues) : 0).toFixed(2)),
+          samples: samples.length
+        };
+      }
+
+      async function ensureAudioElement() {
+        return playSmokeAudio(VERY_LOUD_AMPLITUDE, 8);
+      }
+
+      async function playSmokeAudio(amplitude, durationSeconds) {
+        const audio = document.getElementById("smokeAudio");
+        const key = `${amplitude}:${durationSeconds || 8}`;
+        if (!objectUrls.has(key)) {
+          objectUrls.set(key, URL.createObjectURL(createSineWaveBlob(440, amplitude, durationSeconds || 8)));
+        }
+
+        if (audio.dataset.smokeToneKey !== key) {
+          audio.pause();
+          audio.volume = 0;
+          audio.src = objectUrls.get(key);
+          audio.dataset.smokeToneKey = key;
+          audio.loop = true;
+          audio.load();
+          await waitForMediaReady(audio);
+          audio.currentTime = 0;
+        }
+
+        audio.volume = 1;
+        await audio.play();
+        return audio;
+      }
+
+      async function rampElementVolume(audio, targetVolume, durationMs) {
+        const startVolume = audio.volume;
+        const startedAt = performance.now();
+        while (performance.now() - startedAt < durationMs) {
+          const progress = Math.min(1, (performance.now() - startedAt) / durationMs);
+          const eased = (1 - Math.cos(Math.PI * progress)) / 2;
+          audio.volume = startVolume + (targetVolume - startVolume) * eased;
+          await wait(16);
+        }
+        audio.volume = targetVolume;
+      }
+
+      async function playSmokeAudioWithVolumeRamp(amplitude, durationSeconds) {
+        const audio = await playSmokeAudio(amplitude, durationSeconds);
+        audio.volume = 0;
+        await rampElementVolume(audio, 1, 220);
+        return audio;
+      }
+
+      async function playRealWorldSmokeAudio(amplitude, durationSeconds) {
+        const audio = document.getElementById("smokeAudio");
+        const key = `real:${amplitude}:${durationSeconds || 6}`;
+        if (!objectUrls.has(key)) {
+          objectUrls.set(key, URL.createObjectURL(createRealWorldWaveBlob(amplitude, durationSeconds || 6)));
+        }
+
+        if (audio.dataset.smokeToneKey !== key) {
+          audio.pause();
+          audio.volume = 0;
+          audio.src = objectUrls.get(key);
+          audio.dataset.smokeToneKey = key;
+          audio.loop = true;
+          audio.load();
+          await waitForMediaReady(audio);
+          audio.currentTime = 0;
+        }
+
+        audio.volume = 1;
+        await audio.play();
+        return audio;
+      }
+
+      function waitForMediaReady(audio) {
+        if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+          function cleanup() {
+            audio.removeEventListener("loadeddata", handleReady);
+            audio.removeEventListener("canplay", handleReady);
+            audio.removeEventListener("error", handleError);
+          }
+
+          function handleReady() {
+            cleanup();
+            resolve();
+          }
+
+          function handleError() {
+            cleanup();
+            reject(audio.error || new Error("smoke media load failed"));
+          }
+
+          audio.addEventListener("loadeddata", handleReady, { once: true });
+          audio.addEventListener("canplay", handleReady, { once: true });
+          audio.addEventListener("error", handleError, { once: true });
+        });
+      }
+
+      function createSineWaveBlob(frequency, amplitude, durationSeconds) {
+        const sampleRate = 44100;
+        const sampleCount = sampleRate * durationSeconds;
+        const bytesPerSample = 2;
+        const blockAlign = bytesPerSample;
+        const byteRate = sampleRate * blockAlign;
+        const dataSize = sampleCount * bytesPerSample;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+
+        writeAscii(view, 0, "RIFF");
+        view.setUint32(4, 36 + dataSize, true);
+        writeAscii(view, 8, "WAVE");
+        writeAscii(view, 12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, 16, true);
+        writeAscii(view, 36, "data");
+        view.setUint32(40, dataSize, true);
+
+        for (let index = 0; index < sampleCount; index += 1) {
+          const sample = Math.sin((2 * Math.PI * frequency * index) / sampleRate);
+          const value = Math.max(-1, Math.min(1, sample * amplitude));
+          view.setInt16(44 + index * bytesPerSample, value * 32767, true);
+        }
+
+        return new Blob([buffer], { type: "audio/wav" });
+      }
+
+      function createRealWorldWaveBlob(amplitude, durationSeconds) {
+        const sampleRate = 44100;
+        const sampleCount = sampleRate * durationSeconds;
+        const samples = new Float32Array(sampleCount);
+        let squareSum = 0;
+
+        for (let index = 0; index < sampleCount; index += 1) {
+          const t = index / sampleRate;
+          const speechEnvelope = 0.42 + 0.58 * Math.pow(Math.sin(2 * Math.PI * 2.7 * t), 2);
+          const transientEnvelope = (index % Math.floor(sampleRate * 0.41)) < Math.floor(sampleRate * 0.018) ? 0.35 : 0;
+          const pseudoNoise = (((index * 16807) % 2147483647) / 1073741823.5) - 1;
+          const mixed =
+            0.48 * Math.sin(2 * Math.PI * 176 * t) +
+            0.32 * Math.sin(2 * Math.PI * 440 * t) +
+            0.18 * Math.sin(2 * Math.PI * 1240 * t) +
+            0.08 * pseudoNoise;
+          const sample = mixed * speechEnvelope + transientEnvelope * Math.sin(2 * Math.PI * 2200 * t);
+          samples[index] = sample;
+          squareSum += sample * sample;
+        }
+
+        const currentRms = Math.sqrt(squareSum / sampleCount) || 1;
+        const targetRms = amplitude / Math.SQRT2;
+        const scale = targetRms / currentRms;
+        const bytesPerSample = 2;
+        const blockAlign = bytesPerSample;
+        const byteRate = sampleRate * blockAlign;
+        const dataSize = sampleCount * bytesPerSample;
+        const buffer = new ArrayBuffer(44 + dataSize);
+        const view = new DataView(buffer);
+
+        writeAscii(view, 0, "RIFF");
+        view.setUint32(4, 36 + dataSize, true);
+        writeAscii(view, 8, "WAVE");
+        writeAscii(view, 12, "fmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, byteRate, true);
+        view.setUint16(32, blockAlign, true);
+        view.setUint16(34, 16, true);
+        writeAscii(view, 36, "data");
+        view.setUint32(40, dataSize, true);
+
+        for (let index = 0; index < sampleCount; index += 1) {
+          const value = Math.max(-1, Math.min(1, samples[index] * scale));
+          view.setInt16(44 + index * bytesPerSample, value * 32767, true);
+        }
+
+        return new Blob([buffer], { type: "audio/wav" });
+      }
+
+      function writeAscii(view, offset, text) {
+        for (let index = 0; index < text.length; index += 1) {
+          view.setUint8(offset + index, text.charCodeAt(index));
+        }
+      }
+
+      function formatDb(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? `${number.toFixed(1)} dB` : "--";
+      }
+
+      window.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data || data.type !== "WLG_TEST_PAGE_STATUS" || !data.status) return;
+        document.getElementById("extensionTarget").textContent = formatDb(data.status.targetRmsDb);
+        document.getElementById("extensionOutputRms").textContent = formatDb(data.status.outputRmsDb);
+        document.getElementById("extensionOutputPeak").textContent = formatDb(data.status.outputPeakDb);
+      });
+
+      async function runStreamVolumeSmokeTest() {
+        try {
+          document.title = "StreamVolume Guard Hub - Test Page";
+          await ensureAudioElement();
+
+          const WLG = window.StreamVolumeGuard;
+          window.__wlgStorage[WLG.Settings.SETTINGS_KEY] = {
+            schemaVersion: 3,
+            enabled: true,
+            activeProfile: "stream",
+            targetRmsDb: -21,
+            maxBoostDb: 12,
+            maxReductionDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          };
+          const migratedSettings = await WLG.Settings.getSettings();
+          if (migratedSettings.maxBoostDb !== 48) {
+            throw new Error(`Stored low max boost was not migrated: ${migratedSettings.maxBoostDb}`);
+          }
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "stream",
+            targetRmsDb: -21,
+            maxBoostDb: 12,
+            maxReductionDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          });
+
+          await WLG.Content.setEnabled(true, "smoke");
+
+          const processed = await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            return status.mediaProcessed === 1 && status.mediaDetected >= 1 ? status : null;
+          }, "one processed media element");
+
+          document.getElementById("smokeAudio").volume = 1;
+
+          const loudStatus = await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            return status.gainDb < -1 ? status : null;
+          }, "negative gain on loud input", 7000);
+
+          const beforeDoubleScan = WLG.Content.getStatus().mediaProcessed;
+          await WLG.Content.rescan();
+          await WLG.Content.rescan();
+          const afterDoubleScan = WLG.Content.getStatus().mediaProcessed;
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "night",
+            targetRmsDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          });
+          await WLG.Content.rescan();
+          const profileRefreshStatus = await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            return status.mediaProcessed === 1 && status.activeProfile === "night" ? status : null;
+          }, "rebuilt pipeline after profile change", 5000);
+          await wait(450);
+          const profileAfterReport = WLG.Content.getStatus();
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "night",
+            targetRmsDb: -15,
+            excludedDomains: [],
+            autoDomains: []
+          });
+          await WLG.Content.rescan();
+          const liveTargetStatus = await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            return status.mediaProcessed === 1 && status.targetRmsDb === -15 ? status : null;
+          }, "live target loudness refresh", 5000);
+          const liveTargetGainStatus = await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            return status.targetRmsDb === -15 &&
+              status.gainDb > profileAfterReport.gainDb + 4 &&
+              status.outputRmsDb > -16.5 &&
+              status.outputRmsDb < -13.5
+              ? status
+              : null;
+          }, "audible gain change after target loudness refresh", 1200);
+          const pageDomTarget = await waitFor(() => {
+            const value = document.getElementById("extensionTarget").textContent;
+            return value === "-15.0 dB" ? value : null;
+          }, "page test target DOM refresh", 5000);
+          const pageDomOutput = await waitFor(() => {
+            const value = document.getElementById("extensionOutputRms").textContent;
+            return value !== "--" && value !== formatDb(profileAfterReport.outputRmsDb) ? value : null;
+          }, "page test output RMS DOM refresh", 5000);
+          const pageDomOutputPeak = await waitFor(() => {
+            const value = document.getElementById("extensionOutputPeak").textContent;
+            return value !== "--" && value !== formatDb(profileAfterReport.outputPeakDb) ? value : null;
+          }, "page test output peak DOM refresh", 5000);
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "stream",
+            targetRmsDb: -21,
+            maxBoostDb: 48,
+            maxReductionDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          });
+          await WLG.Content.rescan();
+
+          const equalizedOutputs = [];
+          const equalizationLevels = [
+            { name: "quiet", amplitude: QUIET_AMPLITUDE, expectedRmsDb: -63, minGainDb: 30, maxGainDb: 48 },
+            { name: "loud", amplitude: LOUD_AMPLITUDE, expectedRmsDb: -43, minGainDb: 18, maxGainDb: 34 },
+            { name: "veryLoud", amplitude: VERY_LOUD_AMPLITUDE, expectedRmsDb: -4, minGainDb: -24, maxGainDb: -8 }
+          ];
+
+          for (const level of equalizationLevels) {
+            await playSmokeAudio(level.amplitude, 8);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              return Math.abs(status.rmsDb - level.expectedRmsDb) <= 3.5 ? status : null;
+            }, `${level.name} input detected`, 1200);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              const outputDeltaDb = Math.abs(status.outputRmsDb - status.targetRmsDb);
+              return outputDeltaDb <= 0.45 ? status : null;
+            }, `${level.name} output de-clicked`, 2500);
+            const earlyStats = await collectSettledOutputStats(900);
+            const levelStatus = await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              const outputDeltaDb = Math.abs(status.outputRmsDb - status.targetRmsDb);
+              const inputMatchesLevel = Math.abs(status.rmsDb - level.expectedRmsDb) <= 3.5;
+              const gainMatchesLevel = status.gainDb >= level.minGainDb && status.gainDb <= level.maxGainDb;
+
+              return status.mediaProcessed === 1 &&
+                status.targetRmsDb === -21 &&
+                inputMatchesLevel &&
+                gainMatchesLevel &&
+                status.outputRmsDb > -21.3 &&
+                status.outputRmsDb < -20.7 &&
+                outputDeltaDb <= 0.2
+                ? status
+                : null;
+            }, `${level.name} output near target`, 10000);
+            if (
+              Math.abs(earlyStats.averageOutputRmsDb - levelStatus.targetRmsDb) > EARLY_TRANSIENT_AVERAGE_TOLERANCE_DB ||
+              earlyStats.minOutputRmsDb < levelStatus.targetRmsDb - 1.2 ||
+              earlyStats.maxOutputRmsDb > levelStatus.targetRmsDb + 0.8
+            ) {
+              throw new Error(
+                `${level.name} carries stale gain at the start: avg=${earlyStats.averageOutputRmsDb} dB ` +
+                `min=${earlyStats.minOutputRmsDb} dB max=${earlyStats.maxOutputRmsDb} dB ` +
+                `target=${levelStatus.targetRmsDb} dB`
+              );
+            }
+            await wait(2200);
+            const settledStats = await collectSettledOutputStats(1800);
+            const settledDeltaDb = Math.abs(settledStats.averageOutputRmsDb - levelStatus.targetRmsDb);
+            if (settledDeltaDb > 0.35 || settledStats.outputRangeDb > 0.6) {
+              throw new Error(
+                `${level.name} output is not stable enough: avg=${settledStats.averageOutputRmsDb} dB range=${settledStats.outputRangeDb} dB`
+              );
+            }
+
+            equalizedOutputs.push({
+              name: level.name,
+              rmsDb: levelStatus.rmsDb,
+              gainDb: levelStatus.gainDb,
+              outputRmsDb: levelStatus.outputRmsDb,
+              deltaDb: Number(Math.abs(levelStatus.outputRmsDb - levelStatus.targetRmsDb).toFixed(2)),
+              earlyStats,
+              settledStats
+            });
+          }
+
+          const outputValues = equalizedOutputs.map((entry) => entry.outputRmsDb);
+          const equalizedOutputSpreadDb = Number((Math.max(...outputValues) - Math.min(...outputValues)).toFixed(2));
+          if (equalizedOutputSpreadDb > QUALITY_RMS_SPREAD_DB) {
+            throw new Error(
+              `Processed test levels are not equalized enough: ${equalizedOutputSpreadDb} dB ` +
+              JSON.stringify(equalizedOutputs)
+            );
+          }
+          const settledAverageValues = equalizedOutputs.map((entry) => entry.settledStats.averageOutputRmsDb);
+          const settledAverageSpreadDb = Number((Math.max(...settledAverageValues) - Math.min(...settledAverageValues)).toFixed(2));
+          if (settledAverageSpreadDb > 0.15) {
+            throw new Error(
+              `Processed test levels drift apart while listening: ${settledAverageSpreadDb} dB ` +
+              JSON.stringify(equalizedOutputs)
+            );
+          }
+
+          const alternationEndStats = [];
+          for (let cycle = 0; cycle < 2; cycle += 1) {
+            for (const level of equalizationLevels) {
+              await playSmokeAudio(level.amplitude, 8);
+              await waitFor(() => {
+                const status = WLG.Content.getStatus();
+                return Math.abs(status.rmsDb - level.expectedRmsDb) <= 3.5 ? status : null;
+              }, `${level.name} alternation input detected`, 1200);
+              await wait(5600);
+              const lateStats = await collectSettledOutputStats(1500, 0);
+              const lateDeltaDb = Math.abs(lateStats.averageOutputRmsDb - -21);
+              if (lateDeltaDb > 0.35 || lateStats.maxOutputRmsDb > -20.5 || lateStats.minOutputRmsDb < -21.7) {
+                throw new Error(
+                  `${level.name} drifts during repeated alternation: ` +
+                  `avg=${lateStats.averageOutputRmsDb} min=${lateStats.minOutputRmsDb} max=${lateStats.maxOutputRmsDb}`
+                );
+              }
+              alternationEndStats.push({
+                cycle,
+                name: level.name,
+                averageOutputRmsDb: lateStats.averageOutputRmsDb,
+                minOutputRmsDb: lateStats.minOutputRmsDb,
+                maxOutputRmsDb: lateStats.maxOutputRmsDb,
+                averageOutputPeakDb: lateStats.averageOutputPeakDb,
+                minOutputPeakDb: lateStats.minOutputPeakDb,
+                maxOutputPeakDb: lateStats.maxOutputPeakDb,
+                outputRangeDb: lateStats.outputRangeDb
+              });
+            }
+          }
+
+          const alternationAverages = alternationEndStats.map((entry) => entry.averageOutputRmsDb);
+          const alternationEndSpreadDb = Number((Math.max(...alternationAverages) - Math.min(...alternationAverages)).toFixed(2));
+          const alternationPeakAverages = alternationEndStats.map((entry) => entry.averageOutputPeakDb);
+          const alternationEndPeakSpreadDb = Number((Math.max(...alternationPeakAverages) - Math.min(...alternationPeakAverages)).toFixed(2));
+          if (alternationEndSpreadDb > QUALITY_RMS_SPREAD_DB) {
+            throw new Error(
+              `Repeated alternation levels drift apart at the end of each step: ${alternationEndSpreadDb} dB ` +
+              JSON.stringify(alternationEndStats)
+            );
+          }
+          if (alternationEndPeakSpreadDb > QUALITY_PEAK_SPREAD_DB) {
+            throw new Error(
+              `OBS-style output peaks drift apart at the end of each step: ${alternationEndPeakSpreadDb} dB ` +
+              JSON.stringify(alternationEndStats)
+            );
+          }
+
+          const rampedAlternationStats = [];
+          for (const level of [
+            { name: "veryLoud", amplitude: VERY_LOUD_AMPLITUDE, expectedRmsDb: -4 },
+            { name: "quiet", amplitude: QUIET_AMPLITUDE, expectedRmsDb: -63 },
+            { name: "loud", amplitude: LOUD_AMPLITUDE, expectedRmsDb: -43 },
+            { name: "veryLoud", amplitude: VERY_LOUD_AMPLITUDE, expectedRmsDb: -4 },
+            { name: "quiet", amplitude: QUIET_AMPLITUDE, expectedRmsDb: -63 }
+          ]) {
+            await playSmokeAudioWithVolumeRamp(level.amplitude, 8);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              return Math.abs(status.rmsDb - level.expectedRmsDb) <= 3.5 ? status : null;
+            }, `${level.name} ramped alternation input detected`, 1800);
+            await wait(5600);
+            const rampedStats = await collectSettledOutputStats(1500, 0);
+          if (rampedStats.averageOutputRmsDb > -20.55 || rampedStats.averageOutputRmsDb < -21.45) {
+              throw new Error(
+                `${level.name} drifts after HTML volume ramp: ` +
+                `avg=${rampedStats.averageOutputRmsDb} min=${rampedStats.minOutputRmsDb} max=${rampedStats.maxOutputRmsDb}`
+              );
+            }
+            rampedAlternationStats.push({
+              name: level.name,
+              averageOutputRmsDb: rampedStats.averageOutputRmsDb,
+              minOutputRmsDb: rampedStats.minOutputRmsDb,
+              maxOutputRmsDb: rampedStats.maxOutputRmsDb
+            });
+          }
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "stream",
+            targetRmsDb: CALM_TARGET_RMS_DB,
+            maxBoostDb: 25,
+            maxReductionDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          });
+          await WLG.Content.rescan();
+
+          const calmTargetPeakStats = [];
+          for (const level of equalizationLevels) {
+            await playSmokeAudio(level.amplitude, 8);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              return status.targetRmsDb === CALM_TARGET_RMS_DB &&
+                Math.abs(status.rmsDb - level.expectedRmsDb) <= 3.5
+                ? status
+                : null;
+            }, `${level.name} calm target input detected`, 1800);
+            await wait(4200);
+            const calmStats = await collectSettledOutputStats(1100, 0);
+            const expectedPeakDb = CALM_TARGET_RMS_DB + 3;
+            const peakDeltaDb = Math.abs(calmStats.averageOutputPeakDb - expectedPeakDb);
+            if (peakDeltaDb > 1) {
+              throw new Error(
+                `${level.name} calm OBS peak is too far from ${expectedPeakDb} dB: ` +
+                `peak=${calmStats.averageOutputPeakDb} dB rms=${calmStats.averageOutputRmsDb} dB`
+              );
+            }
+            calmTargetPeakStats.push({
+              name: level.name,
+              averageOutputRmsDb: calmStats.averageOutputRmsDb,
+              averageOutputPeakDb: calmStats.averageOutputPeakDb,
+              peakDeltaDb: Number(peakDeltaDb.toFixed(2))
+            });
+          }
+
+          const calmTargetPeakValues = calmTargetPeakStats.map((entry) => entry.averageOutputPeakDb);
+          const calmTargetPeakSpreadDb = Number((Math.max(...calmTargetPeakValues) - Math.min(...calmTargetPeakValues)).toFixed(2));
+          const calmTargetVeryLoudPeakDeltaDb = calmTargetPeakStats.find((entry) => entry.name === "veryLoud").peakDeltaDb;
+          if (calmTargetPeakSpreadDb > 1) {
+            throw new Error(
+              `Calm OBS target peaks drift apart: ${calmTargetPeakSpreadDb} dB ` +
+              JSON.stringify(calmTargetPeakStats)
+            );
+          }
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "stream",
+            targetRmsDb: -10,
+            maxBoostDb: 48,
+            maxReductionDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          });
+          await WLG.Content.rescan();
+
+          const maxRecoverableTargetStats = [];
+          for (const level of equalizationLevels) {
+            await playSmokeAudio(level.amplitude, 8);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              return status.targetRmsDb === -15 &&
+                Math.abs(status.rmsDb - level.expectedRmsDb) <= 3.5
+                ? status
+                : null;
+            }, `${level.name} max recoverable target input detected`, 1800);
+            await wait(4600);
+            const recoverableStats = await collectSettledOutputStats(1200, 0);
+            if (recoverableStats.averageOutputRmsDb > -14.55 || recoverableStats.averageOutputRmsDb < -15.45) {
+              throw new Error(
+                `${level.name} does not stay equalized at the loudest recoverable target: ` +
+                `avg=${recoverableStats.averageOutputRmsDb} peak=${recoverableStats.averageOutputPeakDb}`
+              );
+            }
+            maxRecoverableTargetStats.push({
+              name: level.name,
+              averageOutputRmsDb: recoverableStats.averageOutputRmsDb,
+              averageOutputPeakDb: recoverableStats.averageOutputPeakDb
+            });
+          }
+
+          const maxRecoverableValues = maxRecoverableTargetStats.map((entry) => entry.averageOutputRmsDb);
+          const maxRecoverableTargetSpreadDb = Number((Math.max(...maxRecoverableValues) - Math.min(...maxRecoverableValues)).toFixed(2));
+          if (maxRecoverableTargetSpreadDb > QUALITY_RMS_SPREAD_DB) {
+            throw new Error(
+              `Loudest recoverable target levels drift apart: ${maxRecoverableTargetSpreadDb} dB ` +
+              JSON.stringify(maxRecoverableTargetStats)
+            );
+          }
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            activeProfile: "stream",
+            targetRmsDb: -21,
+            maxBoostDb: 48,
+            maxReductionDb: -24,
+            excludedDomains: [],
+            autoDomains: []
+          });
+          await WLG.Content.rescan();
+
+          const realWorldLevelStats = [];
+          for (const level of equalizationLevels.filter((entry) => entry.name !== "quiet")) {
+            await playRealWorldSmokeAudio(level.amplitude, 6);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              return Math.abs(status.rmsDb - level.expectedRmsDb) <= 5.5 ? status : null;
+            }, `${level.name} real-world input detected`, 1800);
+            await waitFor(() => {
+              const status = WLG.Content.getStatus();
+              return status.outputRmsDb >= REAL_WORLD_MIN_OUTPUT_RMS_DB ? status : null;
+            }, `${level.name} real-world output settled`, REAL_WORLD_OUTPUT_SETTLE_TIMEOUT_MS);
+            const realStats = await collectSettledOutputStats(2200, 200);
+            const shortfallDb = Math.max(0, -21 - realStats.averageOutputRmsDb);
+            if (shortfallDb > 1) {
+              throw new Error(
+                `${level.name} real-world signal stays too weak after normalization: ` +
+                `avg=${realStats.averageOutputRmsDb} dB shortfall=${shortfallDb.toFixed(2)} dB`
+              );
+            }
+            realWorldLevelStats.push({
+              name: level.name,
+              averageOutputRmsDb: realStats.averageOutputRmsDb,
+              averageOutputPeakDb: realStats.averageOutputPeakDb,
+              shortfallDb: Number(shortfallDb.toFixed(2))
+            });
+          }
+
+          const realWorldRmsValues = realWorldLevelStats.map((entry) => entry.averageOutputRmsDb);
+          const realWorldLevelSpreadDb = Number((Math.max(...realWorldRmsValues) - Math.min(...realWorldRmsValues)).toFixed(2));
+          const realWorldVeryLoudShortfallDb = realWorldLevelStats.find((entry) => entry.name === "veryLoud").shortfallDb;
+          if (realWorldLevelSpreadDb > 1) {
+            throw new Error(
+              `Real-world loud and very loud signals drift apart: ${realWorldLevelSpreadDb} dB ` +
+              JSON.stringify(realWorldLevelStats)
+            );
+          }
+
+          await playSmokeAudio(VERY_LOUD_AMPLITUDE, 8);
+          await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            return Math.abs(status.rmsDb - -4) <= 3.5 &&
+              status.outputRmsDb > -21.7 &&
+              status.outputRmsDb < -20.3
+              ? status
+              : null;
+          }, "very loud level settled before quiet jump", 10000);
+
+          const quietAfterVeryLoudStartedAt = Date.now();
+          await playSmokeAudio(QUIET_AMPLITUDE, 8);
+          const quietAfterVeryLoudTransitionStats = await collectSettledOutputStats(1100, 320);
+          const quietTransitionPeakLimitDb = -17;
+          if (quietAfterVeryLoudTransitionStats.maxOutputPeakDb > quietTransitionPeakLimitDb) {
+            throw new Error(
+              `Quiet input overshoots after very loud input: ` +
+              `maxPeak=${quietAfterVeryLoudTransitionStats.maxOutputPeakDb} dB limit=${quietTransitionPeakLimitDb} dB ` +
+              `avgRms=${quietAfterVeryLoudTransitionStats.averageOutputRmsDb} dB`
+            );
+          }
+          const quietAfterVeryLoudStatus = await waitFor(() => {
+            const status = WLG.Content.getStatus();
+            const outputDeltaDb = Math.abs(status.outputRmsDb - status.targetRmsDb);
+            const expectedOutputPeakDb = status.targetRmsDb + 3;
+            const peakNearTarget = Math.abs(status.outputPeakDb - expectedOutputPeakDb) <= 1;
+            return Math.abs(status.rmsDb - -63) <= 3.5 &&
+              status.gainDb > 30 &&
+              status.outputRmsDb > -21.7 &&
+              status.outputRmsDb < -20.3 &&
+              peakNearTarget &&
+              outputDeltaDb <= 0.2
+              ? status
+              : null;
+          }, "quiet output recovers after very loud level", 3500);
+          const quietAfterVeryLoudSettleMs = Date.now() - quietAfterVeryLoudStartedAt;
+
+          await WLG.Settings.saveSettings({
+            enabled: true,
+            excludedDomains: ["127.0.0.1"]
+          });
+          const excludedStatus = await WLG.Content.setEnabled(true, "smoke");
+
+          return {
+            ok: true,
+            mediaDetected: processed.mediaDetected,
+            mediaProcessed: afterDoubleScan,
+            lowBoostMigrationWorks: migratedSettings.maxBoostDb === 48,
+            loudGainDb: loudStatus.gainDb,
+            loudRmsDb: loudStatus.rmsDb,
+            doubleProcessStable: beforeDoubleScan === 1 && afterDoubleScan === 1,
+            profileRefreshWorks: profileRefreshStatus.activeProfile === "night" && profileAfterReport.activeProfile === "night",
+            liveTargetRefreshWorks: liveTargetStatus.targetRmsDb === -15,
+            liveTargetGainRefreshWorks: liveTargetGainStatus.gainDb > profileAfterReport.gainDb + 4,
+            pageDomTargetRefreshWorks: pageDomTarget === "-15.0 dB",
+            pageDomOutputRefreshWorks: pageDomOutput !== "--",
+            pageDomOutputPeakRefreshWorks: pageDomOutputPeak !== "--",
+            pageDomTarget,
+            pageDomOutput,
+            pageDomOutputPeak,
+            equalizedOutputSpreadDb,
+            settledAverageSpreadDb,
+            alternationEndSpreadDb,
+            alternationEndPeakSpreadDb,
+            calmTargetPeakStats,
+            calmTargetPeakSpreadDb,
+            calmTargetVeryLoudPeakDeltaDb,
+            maxRecoverableTargetStats,
+            maxRecoverableTargetSpreadDb,
+            realWorldLevelStats,
+            realWorldLevelSpreadDb,
+            realWorldVeryLoudShortfallDb,
+            quietAfterVeryLoudTransitionStats,
+            quietAfterVeryLoudTransitionOvershootDb: Number(Math.max(
+              0,
+              quietAfterVeryLoudTransitionStats.maxOutputPeakDb - quietTransitionPeakLimitDb
+            ).toFixed(2)),
+            alternationEndStats,
+            rampedAlternationStats,
+            equalizedOutputs,
+            quietAfterVeryLoudSettleMs,
+            quietAfterVeryLoudStatus,
+            liveTargetStatus,
+            liveTargetGainStatus,
+            profileAfterReport,
+            exclusionWorks: excludedStatus.excluded === true && excludedStatus.enabled === false,
+            excludedStatus
+          };
+        } catch (error) {
+          return {
+            ok: false,
+            error: error.message,
+            status: window.StreamVolumeGuard && window.StreamVolumeGuard.Content
+              ? window.StreamVolumeGuard.Content.getStatus()
+              : null
+          };
+        }
+      }
+
+      window.runStreamVolumeSmokeTest = runStreamVolumeSmokeTest;
+    </script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">StreamVolume Guard Hub</title>
+  <desc id="desc">Guard Signal shield for local audio protection without tracking.</desc>
+  <defs>
+    <linearGradient id="shield" x1="24" y1="12" x2="104" y2="116" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#142233"/>
+      <stop offset="0.58" stop-color="#1c3145"/>
+      <stop offset="1" stop-color="#0d141c"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#shield)" d="M64 8 104 22v34c0 28.9-16.2 50.3-40 62-23.8-11.7-40-33.1-40-62V22L64 8Z"/>
+  <path fill="none" stroke="#9fb2c4" stroke-width="6" stroke-linejoin="round" d="M64 18 94 29v27c0 21.5-10.5 38.7-30 49.7C44.5 94.7 34 77.5 34 56V29l30-11Z" opacity=".88"/>
+  <path fill="none" stroke="#2fe681" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" d="M32 67h16l8-20 16 40 9-20h15"/>
+  <path fill="none" stroke="#ffd166" stroke-linecap="round" stroke-width="6" d="M81 47h17"/>
+</svg>

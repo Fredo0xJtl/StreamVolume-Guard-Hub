@@ -1,0 +1,103 @@
+name: Bug report
+description: Report a reproducible hybrid audio bug.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Desktop Windows mixer
+        - Browser extension
+        - Local bridge
+        - Protocol
+        - Documentation / tester checklist
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List exact steps. Test one audio source at a time first.
+      placeholder: |
+        1. Open StreamVolume Guard Hub Desktop
+        2. Open YouTube/TikTok/Spotify Web/Discord/VLC/OBS
+        3. Press Play
+        4. Wait 10-15 seconds
+        5. Copy recent logs
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: source-classification
+    attributes:
+      label: Source classification shown by the app
+      description: Copy what the app shows. Do not guess if a field is unknown.
+      placeholder: |
+        origin: WindowsSession / BrowserExtension / Unknown
+        controlSurface: WindowsSessionVolume / BrowserGain / ObserveOnly / Unknown
+        status: Safe / Risky / Low / Muted / Excluded / Unknown
+        isControllable: true / false / not shown
+    validations:
+      required: true
+  - type: textarea
+    id: audio-sources
+    attributes:
+      label: Audio sources involved
+      description: Browser, tab/site, player, game, Discord, VLC, OBS, etc. Do not include private content.
+      placeholder: |
+        Browser:
+        Web source:
+        Desktop app:
+        OBS open: yes/no
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      placeholder: Chrome / Edge / Brave / Firefox
+  - type: input
+    id: app-version
+    attributes:
+      label: App version or commit
+  - type: textarea
+    id: verification
+    attributes:
+      label: Commands already run
+      description: Paste only pass/fail summary or short relevant errors.
+      placeholder: |
+        node packages/protocol/tests/protocol.test.js: OK/KO/not run
+        node apps/browser-extension/tests/unit.test.js: OK/KO/not run
+        dotnet run --project apps/desktop/tests/StreamVolumeGuard.Tests/StreamVolumeGuard.Tests.csproj: OK/KO/not run
+        dotnet build apps/desktop/StreamVolumeGuard.Desktop.sln -nr:false: OK/KO/not run
+  - type: textarea
+    id: logs
+    attributes:
+      label: Local logs or screenshots
+      description: Attach only if they do not contain sensitive data. Logs are local under %LOCALAPPDATA%\StreamVolumeGuard\logs.

@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Remove="Assets\app.ico" />
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\StreamVolumeGuard.Core\StreamVolumeGuard.Core.csproj" />
+    <ProjectReference Include="..\StreamVolumeGuard.WindowsAudio\StreamVolumeGuard.WindowsAudio.csproj" />
+  </ItemGroup>
+</Project>

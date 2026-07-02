@@ -1,1 +1,1 @@
-require("./generate-social-preview-png.js");
+require("./generate-social-preview-hub-png.js");

@@ -40,6 +40,7 @@ All notable changes to StreamVolume Guard Hub are tracked here.
 - Changed optional bridge token handling so `/extension-log` is also protected when `BridgeToken` is configured.
 - Changed browser anti-conflict handling to keep a short recent `BrowserGain` history through transient `ObserveOnly` flaps before allowing Windows session correction again.
 - Reused the browser extension Guard Signal icon as the desktop window and executable icon.
+- Reworked the social sharing preview image for StreamVolume Guard Hub with a clearer hybrid mixer presentation.
 
 ### Fixed
 

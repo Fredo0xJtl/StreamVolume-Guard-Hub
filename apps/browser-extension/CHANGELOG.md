@@ -6,6 +6,10 @@ Le changelog public est volontairement consolidé : les micro-corrections faites
 
 ## Non publié
 
+### Modifié
+
+- Image de partage `assets/social-preview.png` refaite pour présenter StreamVolume Guard Hub comme mixeur audio hybride desktop, navigateur et bridge local.
+
 ### Corrigé
 
 - Fusion du profil `Universel` dans `Stream` : `Stream` devient le profil recommandé unique pour YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web.

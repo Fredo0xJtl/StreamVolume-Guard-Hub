@@ -5,10 +5,10 @@
 Recommended GitHub Project views:
 
 1. `Roadmap`
-   - Group by `Milestone`.
+   - Group by `Target`.
    - Sort by `Priority`, then `Area`.
 2. `Current Sprint`
-   - Filter: `Status` is not `Done` and `Milestone` is `Alpha testeur`.
+   - Filter: `Status` is not `Done` and `Target` is `Alpha testeur`.
    - Group by `Status`.
 3. `Real Audio Tests`
    - Filter: `Area` is `Testing` or label contains `audio-test`.
@@ -23,13 +23,23 @@ Create these custom fields if they do not exist:
 
 | Field | Type | Values |
 | --- | --- | --- |
-| Status | Single select | Inbox, Ready, In progress, Testing, Blocked, Done |
+| Status | Native single select | Todo, In Progress, Done |
+| Workflow status | Single select | Inbox, Ready, In progress, Testing, Blocked, Done |
 | Priority | Single select | P0, P1, P2, P3 |
 | Area | Single select | Desktop, Browser Extension, Bridge, Protocol, Testing, Packaging, Docs, GitHub, Release, OBS |
-| Milestone | Single select | Alpha testeur, V1 stable, Later |
+| Target | Single select | Alpha testeur, V1 stable, Later |
 | Control surface | Single select | WindowsSessionVolume, BrowserGain, ObserveOnly, Unknown, Not applicable |
+| Item type | Single select | Task, Test, Feature, Docs, Refactor, Research |
 
 ## Status Rules
+
+GitHub's native `Status` field stays simple:
+
+- `Todo`: inbox, ready, blocked, and later work.
+- `In Progress`: implementation or test validation in progress.
+- `Done`: verified and closed.
+
+Use `Workflow status` for the more precise product workflow:
 
 - `Inbox`: captured but not triaged.
 - `Ready`: scoped and ready to work.

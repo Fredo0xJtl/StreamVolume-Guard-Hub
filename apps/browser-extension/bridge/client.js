@@ -4,6 +4,7 @@
   const LOCAL_BRIDGE_ENDPOINT = "http://127.0.0.1:47841/browser-source";
   const LOCAL_GLOBAL_TARGET_ENDPOINT = "http://127.0.0.1:47841/global-target";
   const LOCAL_EXTENSION_LOG_ENDPOINT = "http://127.0.0.1:47841/extension-log";
+  const LOCAL_HEALTH_ENDPOINT = "http://127.0.0.1:47841/health";
   const MIN_SEND_INTERVAL_MS = 1000;
   const MIN_LOG_SEND_INTERVAL_MS = 1500;
   const TARGET_MIN_DB = -30;
@@ -68,6 +69,31 @@
       : "Unknown";
   }
 
+  function normalizeCalibrationState(value) {
+    const normalized = sanitizeText(value, "");
+    return ["measuring", "applied", "locked", "skipped", "rearmed"].includes(normalized)
+      ? normalized
+      : "";
+  }
+
+  function clampOptionalAudioDb(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    if (number < -120) return -120;
+    if (number > 24) return 24;
+    return number;
+  }
+
+  function clampOptionalGainDb(value) {
+    if (value === undefined || value === null || value === "") return null;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    if (number < -48) return -48;
+    if (number > 48) return 48;
+    return number;
+  }
+
   function redactUrlLikeText(value, fallback) {
     return sanitizeText(value, fallback).replace(URL_LIKE_PATTERN, "[redacted-url]");
   }
@@ -107,6 +133,10 @@
       title: sanitizeText(status.title, ""),
       currentLevel: clampScalar(status.currentLevel),
       appliedGain: clampScalar(status.appliedGain),
+      calibrationState: normalizeCalibrationState(status.calibrationState),
+      measuredRmsDb: clampOptionalAudioDb(status.measuredRmsDb),
+      appliedGainDb: clampOptionalGainDb(status.appliedGainDb),
+      calibrationReason: sanitizeText(status.calibrationReason, ""),
       targetRmsDb: clampOptionalTargetDb(status.targetRmsDb),
       targetProfile: sanitizeText(status.targetProfile, ""),
       status: normalizeStatus(status.status),
@@ -151,6 +181,10 @@
       status: normalizeStatus(log.status),
       controlSurface: normalizeControlSurface(log.controlSurface),
       captureSignalState: sanitizeText(log.captureSignalState, ""),
+      calibrationState: normalizeCalibrationState(log.calibrationState),
+      measuredRmsDb: clampOptionalAudioDb(log.measuredRmsDb),
+      appliedGainDb: clampOptionalGainDb(log.appliedGainDb),
+      calibrationReason: sanitizeText(log.calibrationReason, ""),
       targetRmsDb: clampOptionalTargetDb(log.targetRmsDb),
       targetProfile: sanitizeText(log.targetProfile, ""),
       lastSeen: sanitizeText(log.lastSeen, "") || new Date().toISOString(),
@@ -253,15 +287,46 @@
     }
   }
 
+  async function checkDesktopBridgeHealth() {
+    if (typeof fetch !== "function") {
+      return { ok: false, connected: false, mode: "standalone", error: "fetch unavailable" };
+    }
+
+    try {
+      const response = await fetch(LOCAL_HEALTH_ENDPOINT, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "omit"
+      });
+
+      if (!response.ok) {
+        return { ok: false, connected: false, mode: "standalone", status: response.status };
+      }
+
+      let state = null;
+      try {
+        state = await response.json();
+      } catch (error) {
+        state = null;
+      }
+
+      return { ok: true, connected: true, mode: "desktop", status: response.status, state };
+    } catch (error) {
+      return { ok: false, connected: false, mode: "standalone", error: error && error.message ? error.message : "bridge unavailable" };
+    }
+  }
+
   WLG.BridgeClient = {
     LOCAL_BRIDGE_ENDPOINT,
     LOCAL_GLOBAL_TARGET_ENDPOINT,
     LOCAL_EXTENSION_LOG_ENDPOINT,
+    LOCAL_HEALTH_ENDPOINT,
     buildBrowserSourceObserved,
     buildExtensionLogMessage,
     sendBrowserSourceObserved,
     sendExtensionLog,
     normalizeGlobalTargetState,
-    fetchGlobalTargetState
+    fetchGlobalTargetState,
+    checkDesktopBridgeHealth
   };
 })(globalThis);

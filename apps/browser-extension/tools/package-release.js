@@ -15,7 +15,6 @@ const extensionPackages = [
 
 const projectEntries = [
   ".gitignore",
-  "AGENTS.md",
   "CHANGELOG.md",
   "README.md",
   "_locales",

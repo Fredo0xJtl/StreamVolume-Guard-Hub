@@ -26,6 +26,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private VolumeNormalizer normalizer = new(NormalizerSettings.StreamDefault);
     private readonly AutoApplyPolicy autoApplyPolicy = new();
     private readonly AutoCalibrationGate autoCalibrationGate = new(AutoCalibrationGateSettings.StreamDefault);
+    private readonly SessionReferenceVolumeStore referenceVolumes = new();
+    private readonly TargetVolumeProfilePolicy targetVolumeProfilePolicy = new();
+    private readonly WindowsManualVolumeOverrideDetector manualVolumeOverrideDetector = new();
     private readonly BrowserSessionConflictPolicy browserConflictPolicy = new(TimeSpan.FromSeconds(15));
     private readonly PanicService panic = new(panicTargetVolume: 0.15f);
     private readonly LocalActivityLog activityLog = LocalActivityLog.CreateDefault();
@@ -33,7 +36,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly BrowserSubSourceStore browserSourceStore = new();
     private readonly LocalBrowserBridgeServer browserBridgeServer;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(750) };
-    private readonly DispatcherTimer targetSliderDebounceTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer targetSliderDebounceTimer = new() { Interval = TimeSpan.FromMilliseconds(150) };
     private readonly Dictionary<string, DateTimeOffset> manualChanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> excludedSessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> visibleSessionIds = new(StringComparer.OrdinalIgnoreCase);
@@ -56,6 +59,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string browserSourceCountText = "0 source";
     private string watchCountText = "0 a surveiller";
     private string modeSummaryText = "Observation";
+    private string extensionLinkText = "App seule : extension non connectee.";
+    private DateTimeOffset? extensionLastSeenUtc;
     private int markCounter;
     private int simulatedBrowserSourceCounter;
 
@@ -100,6 +105,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         private set => SetProperty(ref browserSourceCountText, value);
     }
 
+    public string ExtensionLinkText
+    {
+        get => extensionLinkText;
+        private set => SetProperty(ref extensionLinkText, value);
+    }
+
     public string WatchCountText
     {
         get => watchCountText;
@@ -120,6 +131,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         LoadLocalConfig();
         browserBridgeServer = new LocalBrowserBridgeServer(requiredToken: bridgeToken, globalTargetProvider: BuildGlobalTargetState);
         uiReady = true;
+        SynchronizeStartupTargetWithWindows();
 
         activityLog.Write("app.start", "StreamVolume Guard Hub Desktop started", new Dictionary<string, string?>
         {
@@ -171,6 +183,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             browserSourceStore.Upsert(source);
             browserSourceStore.RemoveStale(DateTimeOffset.UtcNow.AddMinutes(-5));
+            MarkExtensionSeen(DateTimeOffset.UtcNow);
             RenderBrowserRows();
             activityLog.Write("browser.source.received", "Browser sub-source received from local bridge", BuildBrowserSourceFields(source));
             BridgeStatusText.Text = $"Bridge local actif : derniere source {source.SiteName} ({source.ControlSurface}).";
@@ -194,6 +207,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         Dispatcher.Invoke(() =>
         {
+            MarkExtensionSeen(DateTimeOffset.UtcNow);
             activityLog.Write($"extension.{entry.EventName}", entry.Message, BuildExtensionLogFields(entry));
             BridgeStatusText.Text = $"Bridge local actif : log extension {entry.EventName}.";
             UpdateLogStatus($"Log extension : {entry.EventName} ({entry.SiteName}).");
@@ -351,7 +365,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         pendingTargetSettings = null;
         targetSliderDebounceTimer.Stop();
-        ApplyGlobalTarget(new GlobalTargetSettings(profile, decibels), save: true, refresh: true);
+        var nextTarget = new GlobalTargetSettings(profile, decibels).Normalize();
+        if (IsCurrentTarget(nextTarget))
+        {
+            UpdateLogStatus($"Cible globale deja active : {TargetDisplayText}.");
+            return;
+        }
+
+        ApplyGlobalTarget(nextTarget, save: true, refresh: true);
         activityLog.Write("target.changed", "Global target preset changed", BuildGlobalTargetFields());
         UpdateLogStatus($"Cible globale : {TargetDisplayText}. L'extension la lira via le bridge local.");
     }
@@ -374,9 +395,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
+        if (IsCurrentTarget(pending))
+        {
+            UpdateLogStatus($"Cible globale deja active : {TargetDisplayText}.");
+            return;
+        }
+
         ApplyGlobalTarget(pending, save: true, refresh: true);
         activityLog.Write("target.changed", "Global target changed from slider", BuildGlobalTargetFields());
         UpdateLogStatus($"Cible globale : {TargetDisplayText}. L'extension la lira via le bridge local.");
+    }
+
+    private bool IsCurrentTarget(GlobalTargetSettings settings)
+    {
+        var normalized = settings.Normalize();
+        return string.Equals(targetProfile, normalized.Profile, StringComparison.OrdinalIgnoreCase)
+            && Math.Abs(targetDecibels - normalized.TargetDecibels) <= 0.01f;
     }
 
     private void ApplyGlobalTarget(GlobalTargetSettings settings, bool save, bool refresh)
@@ -388,6 +422,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         normalizer = new VolumeNormalizer(NormalizerSettings.FromTargetDecibels(targetDecibels));
         TargetDisplayText = $"{targetProfile} ({FormatDecibels(targetDecibels)})";
         TargetBridgeText = $"Cible partagee : {FormatDecibels(targetDecibels)} pour Windows et navigateur quand le bridge est connecte.";
+        UpdateTargetPresetButtons();
 
         if (TargetSlider is not null && Math.Abs((float)TargetSlider.Value - targetDecibels) > 0.01f)
         {
@@ -413,13 +448,110 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             observedDecisionFingerprints.Clear();
             autoCalibrationGate.Clear();
+            manualChanges.Clear();
             SafeRefreshSessions(applyAuto: true);
         }
+    }
+
+    private void UpdateTargetPresetButtons()
+    {
+        if (TargetQuietButton is null || TargetStandardButton is null || TargetLoudButton is null)
+        {
+            return;
+        }
+
+        TargetQuietButton.Tag = string.Equals(targetProfile, GlobalTargetSettings.QuietProfile, StringComparison.OrdinalIgnoreCase) ? "Active" : null;
+        TargetStandardButton.Tag = string.Equals(targetProfile, GlobalTargetSettings.StandardProfile, StringComparison.OrdinalIgnoreCase) ? "Active" : null;
+        TargetLoudButton.Tag = string.Equals(targetProfile, GlobalTargetSettings.LoudProfile, StringComparison.OrdinalIgnoreCase) ? "Active" : null;
     }
 
     private GlobalTargetState BuildGlobalTargetState()
     {
         return GlobalTargetState.FromSettings(new GlobalTargetSettings(targetProfile, targetDecibels), targetUpdatedAtUtc);
+    }
+
+    private void NewTestSession_Click(object sender, RoutedEventArgs e)
+    {
+        markCounter = 0;
+        observedDecisionFingerprints.Clear();
+        var testSessionId = activityLog.StartNewTestSession();
+        activityLog.Write("tester.session.start", "Manual test session started", new Dictionary<string, string?>
+        {
+            ["visibleWindowsSessions"] = Sessions.Count.ToString(CultureInfo.InvariantCulture),
+            ["visibleBrowserSources"] = BrowserSources.Count.ToString(CultureInfo.InvariantCulture),
+            ["autoEnabled"] = isAutoEnabled.ToString(CultureInfo.InvariantCulture),
+            ["targetProfile"] = targetProfile,
+            ["targetDecibels"] = FormatDecibels(targetDecibels)
+        });
+
+        var capturedReferences = CaptureCurrentReferenceVolumes(promoteHighVolumeToLoud: true);
+        activityLog.Write("tester.references.captured", "Current Windows mixer volumes captured for diagnostics", BuildReferenceCaptureFields(capturedReferences));
+        UpdateLogStatus($"Nouvelle session de test : {testSessionId}. Snapshot melangeur : {capturedReferences.TotalSessions} source(s).");
+    }
+
+    private void SynchronizeStartupTargetWithWindows()
+    {
+        var capturedReferences = CaptureCurrentReferenceVolumes(promoteHighVolumeToLoud: false);
+        if (capturedReferences.ControlledSessions <= 0)
+        {
+            activityLog.Write("startup.references.captured", "Startup Windows mixer snapshot captured without target promotion", BuildReferenceCaptureFields(capturedReferences));
+            return;
+        }
+
+        var loud = new GlobalTargetSettings(GlobalTargetSettings.LoudProfile, GlobalTargetSettings.LoudDecibels);
+        if (!IsCurrentTarget(loud))
+        {
+            ApplyGlobalTarget(loud, save: true, refresh: false);
+            activityLog.Write("target.changed", "Global target aligned to startup Windows volume", BuildGlobalTargetFields(new Dictionary<string, string?>
+            {
+                ["trigger"] = "startup-windows-volume",
+                ["capturedReferences"] = capturedReferences.TotalSessions.ToString(CultureInfo.InvariantCulture),
+                ["controlledReferences"] = capturedReferences.ControlledSessions.ToString(CultureInfo.InvariantCulture)
+            }));
+        }
+
+        activityLog.Write("startup.references.captured", "Startup Windows mixer snapshot captured", BuildReferenceCaptureFields(capturedReferences));
+        UpdateLogStatus($"Demarrage cale sur le melangeur Windows : {capturedReferences.ControlledSessions} source(s) observee(s), cible {TargetDisplayText}.");
+    }
+
+    private ReferenceCaptureResult CaptureCurrentReferenceVolumes(bool promoteHighVolumeToLoud)
+    {
+        var windowsSessions = ReadWindowsSessions();
+        LogSessionChanges(windowsSessions);
+        var controlledSessions = 0;
+
+        foreach (var item in windowsSessions)
+        {
+            referenceVolumes.Update(item.Snapshot.SessionId, item.Snapshot.VolumeScalar);
+            manualVolumeOverrideDetector.RecordVolume(item.Snapshot.SessionId, item.Snapshot.VolumeScalar);
+            if (IsManualReferenceCandidate(item.Snapshot))
+            {
+                controlledSessions++;
+            }
+        }
+
+        var highVolumeSource = promoteHighVolumeToLoud
+            ? windowsSessions.FirstOrDefault(item => IsManualHighVolumeReferenceCandidate(item.Snapshot))
+            : null;
+        if (highVolumeSource is not null)
+        {
+            PromoteTargetToLoudForManualWindowsVolume(new WindowsManualVolumeOverride(
+                highVolumeSource.Snapshot.SessionId,
+                highVolumeSource.Snapshot.DisplayName,
+                highVolumeSource.Snapshot.VolumeScalar,
+                highVolumeSource.Snapshot.VolumeScalar));
+        }
+
+        return new ReferenceCaptureResult(windowsSessions.Count, controlledSessions);
+    }
+
+    private static Dictionary<string, string?> BuildReferenceCaptureFields(ReferenceCaptureResult result)
+    {
+        return new Dictionary<string, string?>
+        {
+            ["capturedReferences"] = result.TotalSessions.ToString(CultureInfo.InvariantCulture),
+            ["controlledReferences"] = result.ControlledSessions.ToString(CultureInfo.InvariantCulture)
+        };
     }
 
     private void MarkStep_Click(object sender, RoutedEventArgs e)
@@ -441,18 +573,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
-            var recent = activityLog.ReadRecentText(maxLines: 300);
-            if (string.IsNullOrWhiteSpace(recent))
+            var report = activityLog.ReadRecentReport(maxLines: 300, testSessionId: activityLog.TestSessionId);
+            if (string.IsNullOrWhiteSpace(report))
             {
-                recent = "Aucun log recent pour StreamVolume Guard Hub.";
+                report = "Aucun log recent pour StreamVolume Guard Hub.";
             }
 
-            Clipboard.SetText(recent);
-            activityLog.Write("logs.copy", "Recent logs copied to clipboard", new Dictionary<string, string?>
+            Clipboard.SetText(report);
+            activityLog.Write("logs.copy", "Readable test report copied to clipboard", new Dictionary<string, string?>
             {
-                ["maxLines"] = "300"
+                ["format"] = "readable-report",
+                ["maxLines"] = "300",
+                ["scope"] = "current-test-session"
             });
-            UpdateLogStatus("Logs recents copies dans le presse-papiers.");
+            UpdateLogStatus($"Rapport lisible de la session {activityLog.TestSessionId} copie dans le presse-papiers.");
         }
         catch (Exception ex)
         {
@@ -540,6 +674,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            UpdateExtensionLinkText(DateTimeOffset.UtcNow);
             RefreshSessions(applyAuto);
         }
         catch (Exception ex)
@@ -556,8 +691,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         var now = DateTimeOffset.UtcNow;
         var browserSources = browserSourceStore.GetAll();
+        var manualOverride = manualVolumeOverrideDetector.Detect(windowsSessions.Select(item => item.Snapshot));
+        if (applyAuto && isAutoEnabled && manualOverride is not null)
+        {
+            PromoteTargetToLoudForManualWindowsVolume(manualOverride);
+        }
+
+        var targetSettings = new GlobalTargetSettings(targetProfile, targetDecibels);
         var decisions = windowsSessions
-            .Select(item => browserConflictPolicy.Apply(item.Snapshot, normalizer.Evaluate(item.Snapshot, now), browserSources, now))
+            .Select(item =>
+            {
+                var baseDecision = normalizer.Evaluate(item.Snapshot, now);
+                referenceVolumes.GetOrAdd(item.Snapshot);
+                var profileDecision = targetVolumeProfilePolicy.Apply(item.Snapshot, baseDecision, targetSettings);
+                return browserConflictPolicy.Apply(item.Snapshot, profileDecision, browserSources, now);
+            })
             .ToList();
 
         if (applyAuto)
@@ -575,7 +723,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 if (plan.ShouldSetVolume)
                 {
                     windowsSessions[i].SetVolume(plan.TargetVolumeScalar);
-                    autoCalibrationGate.RecordApplied(windowsSessions[i].Snapshot, now);
+                    manualVolumeOverrideDetector.RecordVolume(windowsSessions[i].Snapshot.SessionId, plan.TargetVolumeScalar);
+                    autoCalibrationGate.RecordApplied(
+                        windowsSessions[i].Snapshot,
+                        now,
+                        decision.Reason == AutoCalibrationGate.SafetySpikeReason);
                     LogVolumeDecision("volume.auto", "Automatic volume correction applied", windowsSessions[i].Snapshot, decision);
                 }
                 else if (decision.Reason == BrowserSessionConflictPolicy.ConflictReason)
@@ -594,6 +746,43 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         RenderRows(windowsSessions, decisions);
+    }
+
+    private void PromoteTargetToLoudForManualWindowsVolume(WindowsManualVolumeOverride manualOverride)
+    {
+        var loud = new GlobalTargetSettings(GlobalTargetSettings.LoudProfile, GlobalTargetSettings.LoudDecibels);
+        referenceVolumes.Update(manualOverride.SessionId, manualOverride.CurrentVolumeScalar);
+        manualVolumeOverrideDetector.RecordVolume(manualOverride.SessionId, manualOverride.CurrentVolumeScalar);
+
+        if (IsCurrentTarget(loud))
+        {
+            return;
+        }
+
+        ApplyGlobalTarget(loud, save: true, refresh: false);
+        activityLog.Write("target.changed", "Global target changed from Windows manual volume", BuildGlobalTargetFields(new Dictionary<string, string?>
+        {
+            ["trigger"] = "windows-manual-volume",
+            ["sessionId"] = manualOverride.SessionId,
+            ["display"] = manualOverride.DisplayName,
+            ["previousVolume"] = FormatPercent(manualOverride.PreviousVolumeScalar),
+            ["currentVolume"] = FormatPercent(manualOverride.CurrentVolumeScalar)
+        }));
+        UpdateLogStatus($"Volume manuel Windows detecte sur {manualOverride.DisplayName}. Cible globale : {TargetDisplayText}.");
+    }
+
+    private static bool IsManualHighVolumeReferenceCandidate(AudioSessionSnapshot snapshot)
+    {
+        return IsManualReferenceCandidate(snapshot)
+            && snapshot.VolumeScalar >= WindowsManualVolumeOverrideSettings.StreamDefault.HighVolumeThreshold;
+    }
+
+    private static bool IsManualReferenceCandidate(AudioSessionSnapshot snapshot)
+    {
+        return snapshot.IsControllable
+            && !snapshot.IsExcluded
+            && !snapshot.IsMuted
+            && !snapshot.IsSystemSession;
     }
 
     private List<WindowsAudioSession> ReadWindowsSessions()
@@ -710,11 +899,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void RecordManualChange(string sessionId, string displayName, float volumeScalar)
     {
         manualChanges[sessionId] = DateTimeOffset.UtcNow;
+        referenceVolumes.Update(sessionId, volumeScalar);
+        manualVolumeOverrideDetector.RecordVolume(sessionId, volumeScalar);
         activityLog.Write("volume.manual", "Manual volume changed", new Dictionary<string, string?>
         {
             ["sessionId"] = sessionId,
             ["display"] = displayName,
-            ["volume"] = FormatPercent(volumeScalar)
+            ["volume"] = FormatPercent(volumeScalar),
+            ["mixerVolume"] = FormatPercent(volumeScalar)
         });
         UpdateLogStatus($"Volume manuel enregistre pour {displayName}.");
     }
@@ -739,6 +931,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ["excluded"] = isExcluded.ToString(CultureInfo.InvariantCulture)
         });
         UpdateLogStatus(isExcluded ? $"Source exclue : {displayName}." : $"Source reintegree : {displayName}.");
+    }
+
+    private void MarkExtensionSeen(DateTimeOffset seenAtUtc)
+    {
+        extensionLastSeenUtc = seenAtUtc;
+        UpdateExtensionLinkText(seenAtUtc);
+    }
+
+    private void UpdateExtensionLinkText(DateTimeOffset nowUtc)
+    {
+        var isRecent = extensionLastSeenUtc.HasValue && nowUtc - extensionLastSeenUtc.Value <= TimeSpan.FromSeconds(30);
+        ExtensionLinkText = isRecent
+            ? "Extension connectee : detail navigateur disponible."
+            : "App seule : controle Windows global, extension non connectee.";
     }
 
     private void UpdateSummaryCards()
@@ -786,6 +992,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var currentIds = windowsSessions.Select(item => item.Snapshot.SessionId).ToHashSet(StringComparer.OrdinalIgnoreCase);
         autoCalibrationGate.RemoveMissing(currentIds);
+        referenceVolumes.RemoveMissing(currentIds);
 
         foreach (var session in windowsSessions)
         {
@@ -932,6 +1139,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ["title"] = source.Title,
             ["level"] = FormatPercent(source.CurrentLevel),
             ["gain"] = FormatPercent(source.AppliedGain),
+            ["calibrationState"] = source.CalibrationState,
+            ["measuredRmsDb"] = source.MeasuredRmsDb.HasValue ? FormatDecibels(source.MeasuredRmsDb.Value) : string.Empty,
+            ["appliedGainDb"] = source.AppliedGainDb.HasValue ? FormatDecibels(source.AppliedGainDb.Value) : string.Empty,
+            ["calibrationReason"] = source.CalibrationReason,
             ["targetRmsDb"] = source.TargetRmsDb.HasValue ? FormatDecibels(source.TargetRmsDb.Value) : string.Empty,
             ["targetProfile"] = source.TargetProfile,
             ["status"] = source.Status.ToString(),
@@ -956,6 +1167,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ["origin"] = entry.Origin.ToString(),
             ["controlSurface"] = entry.ControlSurface.ToString(),
             ["captureSignalState"] = entry.CaptureSignalState,
+            ["calibrationState"] = entry.CalibrationState,
+            ["measuredRmsDb"] = entry.MeasuredRmsDb.HasValue ? FormatDecibels(entry.MeasuredRmsDb.Value) : string.Empty,
+            ["appliedGainDb"] = entry.AppliedGainDb.HasValue ? FormatDecibels(entry.AppliedGainDb.Value) : string.Empty,
+            ["calibrationReason"] = entry.CalibrationReason,
             ["targetRmsDb"] = entry.TargetRmsDb.HasValue ? FormatDecibels(entry.TargetRmsDb.Value) : string.Empty,
             ["targetProfile"] = entry.TargetProfile,
             ["lastSeen"] = entry.LastSeenUtc.ToString("O", CultureInfo.InvariantCulture)
@@ -973,6 +1188,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             ["targetRmsDb"] = FormatDecibels(targetDecibels),
             ["updatedAt"] = targetUpdatedAtUtc.ToString("O", CultureInfo.InvariantCulture)
         };
+    }
+
+    private Dictionary<string, string?> BuildGlobalTargetFields(Dictionary<string, string?> extraFields)
+    {
+        var fields = BuildGlobalTargetFields();
+        foreach (var (key, value) in extraFields)
+        {
+            fields[key] = value;
+        }
+
+        return fields;
     }
 
     private void LogError(string eventName, string message, Exception ex)
@@ -1041,6 +1267,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 }
 
+public sealed record ReferenceCaptureResult(int TotalSessions, int ControlledSessions);
+
 public sealed class BrowserSourceRow
 {
     private BrowserSourceRow(BrowserSubSourceSnapshot source)
@@ -1051,6 +1279,7 @@ public sealed class BrowserSourceRow
         Status = source.Status.ToString();
         CurrentLevelPercent = $"{source.CurrentLevel:P0}";
         AppliedGainPercent = $"{source.AppliedGain:P0}";
+        Calibration = FormatCalibration(source);
         Origin = source.Origin.ToString();
         ControlSurface = source.ControlSurface.ToString();
         IsControllable = source.IsControllable ? "Oui" : "Non";
@@ -1062,6 +1291,7 @@ public sealed class BrowserSourceRow
     public string Status { get; }
     public string CurrentLevelPercent { get; }
     public string AppliedGainPercent { get; }
+    public string Calibration { get; }
     public string Origin { get; }
     public string ControlSurface { get; }
     public string IsControllable { get; }
@@ -1069,6 +1299,19 @@ public sealed class BrowserSourceRow
     public static BrowserSourceRow From(BrowserSubSourceSnapshot source)
     {
         return new BrowserSourceRow(source);
+    }
+
+    private static string FormatCalibration(BrowserSubSourceSnapshot source)
+    {
+        if (string.IsNullOrWhiteSpace(source.CalibrationState))
+        {
+            return source.ControlSurface is AudioControlSurface.BrowserGain ? "mesure" : "fallback Windows";
+        }
+
+        var detail = source.AppliedGainDb.HasValue
+            ? $" {source.AppliedGainDb.Value:+0.##;-0.##;0} dB"
+            : string.Empty;
+        return $"{source.CalibrationState}{detail}";
     }
 }
 

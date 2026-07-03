@@ -14,7 +14,21 @@
   const WLG = root.StreamVolumeGuard = root.StreamVolumeGuard || {};
   const Settings = WLG.Settings;
   const captureStatuses = new Map();
+  const silentMediaUpgradeCandidates = new Map();
+  const silentMediaUpgradeCooldowns = new Map();
+  const silentMediaUpgradeInFlight = new Set();
   const GLOBAL_TARGET_SYNC_INTERVAL_MS = 1500;
+  const SILENT_MEDIA_UPGRADE_MIN_REPORTS = 3;
+  const SILENT_MEDIA_UPGRADE_LEVEL_THRESHOLD = 0.001;
+  const SILENT_MEDIA_UPGRADE_COOLDOWN_MS = 45000;
+  const BROWSER_GAIN_CALIBRATION_EVENTS = new Set([
+    "browser.calibration.started",
+    "browser.calibration.measured",
+    "browser.gain.applied",
+    "browser.gain.locked",
+    "browser.gain.skipped",
+    "browser.gain.rearmed"
+  ]);
   let lastGlobalTargetSignature = "";
   let lastGlobalTargetSyncMs = 0;
   let globalTargetSyncPromise = null;
@@ -25,6 +39,7 @@
     "audio/analyser.js",
     "audio/limiter.js",
     "audio/stream-status.js",
+    "audio/browser-gain-calibration.js",
     "audio/normalizer.js",
     "content.js"
   ];
@@ -67,6 +82,23 @@
         resolve(response || null);
       });
     });
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => root.setTimeout(resolve, ms));
+  }
+
+  async function sendMessageWithRetry(tabId, message, attempts) {
+    const totalAttempts = Math.max(1, Number(attempts) || 3);
+    for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+      const response = await sendMessage(tabId, message);
+      if (response) return response;
+      if (attempt < totalAttempts - 1) {
+        await delay(120);
+      }
+    }
+
+    return null;
   }
 
   function sendRuntimeMessage(message) {
@@ -139,6 +171,10 @@
       title: source.title || "",
       currentLevel: source.currentLevel,
       appliedGain: source.appliedGain,
+      calibrationState: source.calibrationState,
+      measuredRmsDb: source.measuredRmsDb,
+      appliedGainDb: source.appliedGainDb,
+      calibrationReason: source.calibrationReason,
       targetRmsDb: source.targetRmsDb,
       targetProfile: source.targetProfile || source.activeProfile || "",
       status: source.status || "Unknown",
@@ -174,7 +210,7 @@
     const normalizedTabId = Number(tabId) || (tab && tab.id ? Number(tab.id) : null);
     const site = source.site || (tab ? getDomainFromUrl(tab.url) : "") || "Unknown site";
     const captureSignalState = source.captureSignalState || "unknown";
-    const controlSurface = source.enabled && captureSignalState === "signal" ? "BrowserGain" : "ObserveOnly";
+    const controlSurface = source.enabled && captureSignalState === "signal" && source.calibrationState !== "skipped" ? "BrowserGain" : "ObserveOnly";
 
     return {
       browserProcess: source.browserProcess || "",
@@ -184,6 +220,10 @@
       title: site ? `${site} tab capture` : "Tab capture",
       currentLevel: dbToScalar(source.outputRmsDb ?? source.rmsDb),
       appliedGain: gainDbToScalar(source.gainDb),
+      calibrationState: source.calibrationState,
+      measuredRmsDb: source.measuredRmsDb,
+      appliedGainDb: source.appliedGainDb,
+      calibrationReason: source.calibrationReason,
       targetRmsDb: source.targetRmsDb,
       targetProfile: source.targetProfile || source.activeProfile || "",
       status: mapCaptureStatusToBridgeStatus(source),
@@ -209,7 +249,9 @@
     await maybeSyncGlobalTargetForOpenTabs();
     const tab = sender && sender.tab ? sender.tab : null;
     const message = normalizeBridgeStatus(tab, status);
-    return WLG.BridgeClient.sendBrowserSourceObserved(message);
+    const result = await WLG.BridgeClient.sendBrowserSourceObserved(message);
+    maybeUpgradeSilentMediaToTabCapture(sender, status).catch(() => {});
+    return result;
   }
 
   async function forwardCaptureStatusToBridge(tabId, status) {
@@ -386,6 +428,112 @@
     );
   }
 
+  function markSilentMediaUpgradeCooldown(tabId, reason) {
+    const normalizedTabId = Number(tabId);
+    if (!normalizedTabId) return;
+
+    silentMediaUpgradeCandidates.delete(normalizedTabId);
+    silentMediaUpgradeCooldowns.set(normalizedTabId, {
+      reason: reason || "cooldown",
+      untilMs: Date.now() + SILENT_MEDIA_UPGRADE_COOLDOWN_MS
+    });
+  }
+
+  function isSilentMediaUpgradeCoolingDown(tabId) {
+    const normalizedTabId = Number(tabId);
+    if (!normalizedTabId) return false;
+
+    const cooldown = silentMediaUpgradeCooldowns.get(normalizedTabId);
+    if (!cooldown) return false;
+    if (Date.now() < Number(cooldown.untilMs)) return true;
+
+    silentMediaUpgradeCooldowns.delete(normalizedTabId);
+    return false;
+  }
+
+  function shouldUpgradeSilentMediaToTabCapture(tab, status) {
+    if (!status || typeof status !== "object") return false;
+    const source = status;
+    if (!tab || !tab.id || !canCaptureTab() || !canInjectUrl(tab.url)) return false;
+    if (!(tab.audible === true)) return false;
+    if (status.sourceType !== "media-html") return false;
+    if (source.controlSurface !== "BrowserGain") return false;
+    if (source.isControllable === false || source.status === "Excluded") return false;
+    if (getCaptureStatus(tab.id) && getCaptureStatus(tab.id).enabled) return false;
+    if (isSilentMediaUpgradeCoolingDown(tab.id)) return false;
+
+    const currentLevel = Number(source.currentLevel);
+    return Number.isFinite(currentLevel) && currentLevel <= SILENT_MEDIA_UPGRADE_LEVEL_THRESHOLD;
+  }
+
+  function recordSilentMediaUpgradeCandidate(tab, status) {
+    if (!shouldUpgradeSilentMediaToTabCapture(tab, status)) {
+      if (tab && tab.id) silentMediaUpgradeCandidates.delete(tab.id);
+      return false;
+    }
+
+    const source = status && typeof status === "object" ? status : {};
+    const sourceKey = source.sourceId || source.sourceType || "media-html";
+    const previous = silentMediaUpgradeCandidates.get(tab.id);
+    const count = previous && previous.sourceKey === sourceKey ? Number(previous.count) + 1 : 1;
+
+    silentMediaUpgradeCandidates.set(tab.id, {
+      count,
+      sourceKey,
+      lastSeenMs: Date.now()
+    });
+
+    return count >= SILENT_MEDIA_UPGRADE_MIN_REPORTS;
+  }
+
+  async function maybeUpgradeSilentMediaToTabCapture(sender, status) {
+    const tab = sender && sender.tab ? sender.tab : null;
+    if (!recordSilentMediaUpgradeCandidate(tab, status)) return;
+    if (silentMediaUpgradeInFlight.has(tab.id)) return;
+
+    silentMediaUpgradeInFlight.add(tab.id);
+    silentMediaUpgradeCandidates.delete(tab.id);
+
+    try {
+      await forwardExtensionLogToBridge({
+        eventName: "browser.media_html_silent_upgrade",
+        message: "Media HTML is silent while the tab is audible; switching to tab capture.",
+        severity: "info",
+        tabId: tab.id,
+        siteName: getDomainFromUrl(tab.url),
+        status: "Unknown",
+        controlSurface: "ObserveOnly"
+      });
+
+      const result = await startTabCaptureForTab(tab, { replaceMedia: true, reason: "media-html-silent" });
+      if (result && result.ok === false) {
+        markSilentMediaUpgradeCooldown(tab.id, "tab-capture-start-failed");
+        await forwardExtensionLogToBridge({
+          eventName: "browser.media_html_silent_upgrade_failed",
+          message: result.error || "Silent media HTML upgrade to tab capture failed.",
+          severity: "warn",
+          tabId: tab.id,
+          siteName: getDomainFromUrl(tab.url),
+          status: "Unknown",
+          controlSurface: "ObserveOnly"
+        });
+      }
+    } catch (error) {
+      markSilentMediaUpgradeCooldown(tab.id, "tab-capture-start-error");
+      await forwardExtensionLogToBridge({
+        eventName: "browser.media_html_silent_upgrade_failed",
+        message: error && error.message ? error.message : "Silent media HTML upgrade to tab capture failed.",
+        severity: "warn",
+        tabId: tab.id,
+        siteName: getDomainFromUrl(tab.url),
+        status: "Unknown",
+        controlSurface: "ObserveOnly"
+      });
+    } finally {
+      silentMediaUpgradeInFlight.delete(tab.id);
+    }
+  }
+
   function baseStatusForTab(tab) {
     return {
       ok: true,
@@ -492,18 +640,31 @@
 
     await executeScripts(tab.id);
     const settings = await getEffectiveSettingsForDomain(getDomainFromUrl(tab.url));
-    const response = await sendMessage(tab.id, {
+    const response = await sendMessageWithRetry(tab.id, {
       type: "WLG_SET_ENABLED",
       enabled: Boolean(enabled),
       mode: "manual",
       settings
     });
 
-    return response || { ok: true };
+    if (!response) {
+      return {
+        ok: false,
+        enabled: false,
+        sourceType: "media-html",
+        site: getDomainFromUrl(tab.url),
+        canInject: canInjectUrl(tab.url),
+        canCaptureTab: canCaptureTab(),
+        error: "Activation impossible sur cet onglet. Recharge la page, relance l'extension, puis reessaie."
+      };
+    }
+
+    return response;
   }
 
   async function fallbackSilentCaptureToMedia(tabId, status) {
     const tab = await getTabById(tabId);
+    markSilentMediaUpgradeCooldown(tabId, "tab-capture-no-signal");
     if (!tab || !tab.id || !canInjectUrl(tab.url)) {
       updateCaptureStatus(tabId, {
         ...status,
@@ -879,6 +1040,17 @@
 
     if (type === "WLG_BROWSER_SOURCE_STATUS") {
       forwardBrowserSourceStatus(sender, message.status)
+        .then((response) => sendResponse(response || { ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    if (type === "WLG_EXTENSION_LOG") {
+      const log = message.log || {};
+      if (BROWSER_GAIN_CALIBRATION_EVENTS.has(log.eventName)) {
+        log.severity = log.eventName === "browser.gain.skipped" ? "warn" : "info";
+      }
+      forwardExtensionLogToBridge(log)
         .then((response) => sendResponse(response || { ok: true }))
         .catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;

@@ -55,6 +55,10 @@
       outputPeakDb: nextState.outputPeakDb,
       peakDb: nextState.peakDb,
       predictedPeakDb: nextState.predictedPeakDb,
+      calibrationState: nextState.calibrationState,
+      measuredRmsDb: nextState.measuredRmsDb,
+      appliedGainDb: nextState.appliedGainDb,
+      calibrationReason: nextState.calibrationReason,
       contextState: nextState.contextState,
       ...captureHealth,
       captureSignalState,
@@ -92,6 +96,10 @@
       outputPeakDb: -120,
       peakDb: -120,
       predictedPeakDb: -120,
+      calibrationState: "measuring",
+      measuredRmsDb: null,
+      appliedGainDb: null,
+      calibrationReason: "",
       contextState: "unknown",
       audioTrackCount: 0,
       captureTrackState: "pending",
@@ -121,6 +129,32 @@
     };
     postStatus(tabId, capture.status);
     return capture.status;
+  }
+
+  function forwardCalibrationEvent(tabId, site, event) {
+    if (!event) return;
+    const controlSurface = event.eventName === "browser.gain.skipped" ? "ObserveOnly" : "BrowserGain";
+    chrome.runtime.sendMessage({
+      type: "WLG_EXTENSION_LOG",
+      log: {
+        eventName: event.eventName,
+        message: `BrowserGain calibration ${event.reason || event.calibrationState || "updated"}`,
+        severity: event.eventName === "browser.gain.skipped" ? "warn" : "info",
+        sourceId: `tab-capture:${tabId || "unknown"}`,
+        tabId,
+        siteName: Settings.normalizeDomain(site),
+        status: "Safe",
+        controlSurface,
+        calibrationState: event.calibrationState,
+        measuredRmsDb: event.measuredRmsDb,
+        appliedGainDb: event.appliedGainDb,
+        calibrationReason: event.reason,
+        targetRmsDb: event.targetRmsDb,
+        targetProfile: event.targetProfile || ""
+      }
+    }, () => {
+      // Best-effort local logs only. The desktop may be closed.
+    });
   }
 
   function requestCaptureRestart(tabId, status) {
@@ -274,6 +308,9 @@
       normalizer = Normalizer.createMediaStreamNormalizer(stream, settings, {
         onState(nextState) {
           handleNormalizerState(tabId, stream, nextState, startedAt, restartCount);
+        },
+        onCalibrationEvent(event) {
+          forwardCalibrationEvent(tabId, message.site, event);
         }
       });
 

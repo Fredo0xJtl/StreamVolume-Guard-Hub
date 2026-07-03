@@ -89,6 +89,20 @@ test("normalizes browser source target metadata from desktop", () => {
   assert.equal(result.targetProfile, "Standard");
 });
 
+test("normalizes browser gain calibration metadata", () => {
+  const result = protocol.normalizeBrowserSourceMessage(validMessage({
+    calibrationState: "locked",
+    measuredRmsDb: -27.25,
+    appliedGainDb: 6.25,
+    calibrationReason: "window-complete"
+  }));
+
+  assert.equal(result.calibrationState, "locked");
+  assert.equal(result.measuredRmsDb, -27.25);
+  assert.equal(result.appliedGainDb, 6.25);
+  assert.equal(result.calibrationReason, "window-complete");
+});
+
 test("normalizes a desktop global target state", () => {
   const result = protocol.normalizeGlobalTargetState({
     type: "global_target_state",

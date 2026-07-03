@@ -16,7 +16,11 @@ public sealed record BrowserSubSourceSnapshot(
     DateTimeOffset LastSeenUtc,
     float? TargetRmsDb = null,
     string TargetProfile = "",
-    DateTimeOffset? LastBrowserGainSeenUtc = null)
+    DateTimeOffset? LastBrowserGainSeenUtc = null,
+    string CalibrationState = "",
+    float? MeasuredRmsDb = null,
+    float? AppliedGainDb = null,
+    string CalibrationReason = "")
 {
     public bool IsControllable => ControlSurface is AudioControlSurface.BrowserGain or AudioControlSurface.WindowsSessionVolume;
 }

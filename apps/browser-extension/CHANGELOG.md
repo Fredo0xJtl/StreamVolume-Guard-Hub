@@ -9,9 +9,12 @@ Le changelog public est volontairement consolidé : les micro-corrections faites
 ### Modifié
 
 - Image de partage `assets/social-preview.png` refaite pour présenter StreamVolume Guard Hub comme mixeur audio hybride desktop, navigateur et bridge local.
+- Calibration `BrowserGain` rendue plus robuste : analyse d'environ 12 secondes, minimum de signal utile hors silence, mesure médiane du ton global, pas de boost avant mesure fiable, attenuation temporaire des debuts dangereux et rearmement sur changement durable de niveau.
+- Changement de cible desktop plus reactif pour `BrowserGain` : une source deja verrouillee recalcule immediatement son gain depuis la mesure fiable existante, au lieu d'attendre une nouvelle fenetre complete.
 
 ### Corrigé
 
+- L'activation `Protéger cet onglet` réessaie maintenant le contact avec le content script après injection, puis affiche une erreur claire si l'onglet ne répond toujours pas au lieu de repasser silencieusement inactif.
 - Fusion du profil `Universel` dans `Stream` : `Stream` devient le profil recommandé unique pour YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web.
 - Migration automatique des anciens réglages `universal` vers `stream`, y compris les profils locaux par domaine.
 - Les profils pilotent maintenant réellement la cible de volume quand l'utilisateur choisit un profil ; le slider `Volume moyen voulu` reste prioritaire dès qu'il est modifié manuellement.
@@ -67,12 +70,12 @@ Le changelog public est volontairement consolidé : les micro-corrections faites
 - Rattrapage du son faible après un son très fort rendu plus direct : le niveau revient autour de `-21 dB RMS` / `-18 dB Peak OBS estimé` en environ une seconde dans le smoke navigateur.
 - Capteur `Peak OBS estimé` stabilisé pendant les transitions pour éviter d'afficher un pic obsolète au moment où la page change de niveau audio.
 - Ajout d'une politique de confidentialité publique dans `docs/privacy-policy.md`.
-- Ajout d'un plan de test plateformes réelles dans `docs/real-platform-test-plan.md`.
+- Ajout d'un plan de test plateformes réelles interne.
 - Ajout de `tools/package-release.js` pour générer les zips publics sans refaire les commandes PowerShell à la main.
 - Profils par plateforme clarifiés dans les options avec badge recommandé/personnalisé et sélection plus explicite.
 - Plage du `Volume moyen voulu` ajustée de `-48 dB` à `-15 dB` et champ de saisie clavier déplacé dans le bloc du slider.
 - Logo de la page de test aligné sur l'icône PNG officielle de l'extension pour garantir son affichage dans les builds distribués.
-- Ajout de `docs/maintenance-checklist.md` pour figer le contrat audio validé, les commandes de vérification et les règles de reprise.
+- Ajout d'une checklist maintenance interne pour figer le contrat audio validé, les commandes de vérification et les règles de reprise.
 - Correction du README : le son `Très fort` de la page de test est documenté autour de `-4 dB RMS`, pas `-3 dB`.
 - Checklist testeur clarifiée : `Avant brut` doit faire entendre les écarts, tandis que l'extension active doit rapprocher les trois niveaux.
 

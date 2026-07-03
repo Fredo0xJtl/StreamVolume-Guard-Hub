@@ -5,17 +5,22 @@ namespace StreamVolumeGuard.Core.Control;
 
 public sealed record AutoCalibrationGateSettings(
     TimeSpan ResetAfterSilence,
-    float SilencePeakLevel)
+    float SilencePeakLevel,
+    float SafetySpikePeakLevel = 0.80f,
+    TimeSpan? SafetySpikeMinAge = null)
 {
     public static AutoCalibrationGateSettings StreamDefault { get; } = new(
         ResetAfterSilence: TimeSpan.FromSeconds(6),
-        SilencePeakLevel: 0.02f);
+        SilencePeakLevel: 0.02f,
+        SafetySpikePeakLevel: 0.80f,
+        SafetySpikeMinAge: TimeSpan.FromSeconds(3));
 }
 
 public sealed class AutoCalibrationGate
 {
     public const string LockedReason = "auto-calibration-locked";
     public const string SilentReason = "source-silent";
+    public const string SafetySpikeReason = "safety-spike";
 
     private readonly AutoCalibrationGateSettings settings;
     private readonly Dictionary<string, SessionCalibrationState> states = new(StringComparer.OrdinalIgnoreCase);
@@ -69,6 +74,14 @@ public sealed class AutoCalibrationGate
         state.QuietSinceUtc = null;
         if (state.HasApplied)
         {
+            if (!state.HasSafetyApplied && IsSafetySpike(state, session, decision, currentVolume, now))
+            {
+                return decision with
+                {
+                    Reason = SafetySpikeReason
+                };
+            }
+
             return decision with
             {
                 ShouldApplyVolume = false,
@@ -102,10 +115,12 @@ public sealed class AutoCalibrationGate
         if (now - state.QuietSinceUtc >= settings.ResetAfterSilence)
         {
             state.HasApplied = false;
+            state.HasSafetyApplied = false;
+            state.LastAppliedUtc = null;
         }
     }
 
-    public void RecordApplied(AudioSessionSnapshot session, DateTimeOffset now)
+    public void RecordApplied(AudioSessionSnapshot session, DateTimeOffset now, bool usedSafetyBypass = false)
     {
         if (string.IsNullOrWhiteSpace(session.SessionId))
         {
@@ -114,6 +129,12 @@ public sealed class AutoCalibrationGate
 
         var state = GetState(session.SessionId);
         state.HasApplied = true;
+        state.LastAppliedUtc = now;
+        if (usedSafetyBypass)
+        {
+            state.HasSafetyApplied = true;
+        }
+
         state.QuietSinceUtc = IsSilent(session) ? now : null;
     }
 
@@ -150,6 +171,16 @@ public sealed class AutoCalibrationGate
         return Clamp(session.PeakLevel, 0.0f, 1.0f) <= settings.SilencePeakLevel;
     }
 
+    private bool IsSafetySpike(SessionCalibrationState state, AudioSessionSnapshot session, VolumeDecision decision, float currentVolume, DateTimeOffset now)
+    {
+        var minAge = settings.SafetySpikeMinAge ?? TimeSpan.FromSeconds(3);
+        return decision.Status == AudioSessionStatus.Risky
+            && state.LastAppliedUtc.HasValue
+            && now - state.LastAppliedUtc.Value >= minAge
+            && Clamp(session.PeakLevel, 0.0f, 1.0f) >= settings.SafetySpikePeakLevel
+            && decision.TargetVolumeScalar < currentVolume;
+    }
+
     private static float Clamp(float value, float min, float max)
     {
         if (float.IsNaN(value) || float.IsInfinity(value)) return min;
@@ -161,6 +192,8 @@ public sealed class AutoCalibrationGate
     private sealed class SessionCalibrationState
     {
         public bool HasApplied { get; set; }
+        public bool HasSafetyApplied { get; set; }
+        public DateTimeOffset? LastAppliedUtc { get; set; }
         public DateTimeOffset? QuietSinceUtc { get; set; }
     }
 }

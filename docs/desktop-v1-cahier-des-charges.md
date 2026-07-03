@@ -3,7 +3,7 @@
 Date : 2026-06-30
 Statut : cadrage initial repris dans la base hybride
 Dossier produit : `D:\Codex\StreamVolume Guard Hybride`
-Note 2026-07-02 : ce document reste le cadrage de la couche desktop. L'etat courant du produit hybride et du bridge local est suivi dans `docs/hybrid-architecture.md`, `docs/product-next-plan.md` et `docs/tester-checklist.md`.
+Note 2026-07-02 : ce document reste le cadrage de la couche desktop. L'etat courant du produit hybride et du bridge local est suivi dans `docs/hybrid-architecture.md`, `docs/tester-checklist.md`, `README.md` et `CHANGELOG.md`.
 
 ## Décision Produit
 
@@ -128,6 +128,8 @@ Le comportement par défaut doit :
 - ne pas combattre immédiatement une action manuelle récente.
 
 Pour la version testable actuelle, `Auto actif` applique une calibration ponctuelle par source active, puis verrouille cette source pour eviter de bouger le volume en boucle pendant la meme lecture. Le verrou se rearme apres silence durable ou disparition de la session.
+
+Les `Sons systeme Windows` sont une exception volontaire : ils doivent etre visibles et abaissables si un pic menace le live, mais l'app ne doit pas les booster automatiquement comme une musique, une video ou une voix.
 
 Une future variante prudente pourra limiter l'automatique à l'anti-pics, mais ce n'est pas le comportement principal de la V1.
 

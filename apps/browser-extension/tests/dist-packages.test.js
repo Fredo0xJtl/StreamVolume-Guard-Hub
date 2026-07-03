@@ -36,9 +36,7 @@ const requiredFiles = [
   "test-page.html",
   "docs/bug-report-template.md",
   "docs/cross-browser-deployment.md",
-  "docs/maintenance-checklist.md",
   "docs/privacy-policy.md",
-  "docs/real-platform-test-plan.md",
   "docs/streamer-quickstart-60s.md",
   "docs/tester-checklist.md",
   "_locales/en/messages.json",
@@ -99,12 +97,6 @@ function assertNoDevFolders(targetRoot) {
       `${path.basename(targetRoot)} should not include ${folder}`
     );
   }
-
-  assert.equal(
-    fs.existsSync(path.join(targetRoot, "docs", "future-implementation-roadmap.md")),
-    false,
-    `${path.basename(targetRoot)} should not include future implementation roadmap`
-  );
 }
 
 function assertRequiredFiles(targetRoot, targetId) {

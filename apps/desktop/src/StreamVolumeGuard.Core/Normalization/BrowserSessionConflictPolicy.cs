@@ -1,11 +1,13 @@
 using StreamVolumeGuard.Core.Audio;
 using StreamVolumeGuard.Core.Browser;
+using StreamVolumeGuard.Core.Control;
 
 namespace StreamVolumeGuard.Core.Normalization;
 
 public sealed class BrowserSessionConflictPolicy
 {
     public const string ConflictReason = "browser-gain-conflict";
+    public const string FastTargetFallbackReason = "windows-fast-target";
 
     private static readonly HashSet<string> ChromiumBrowserProcessNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -21,16 +23,15 @@ public sealed class BrowserSessionConflictPolicy
     };
 
     private readonly TimeSpan freshnessWindow;
-    private readonly TimeSpan browserGainHistoryWindow;
+    private readonly BrowserSessionControlMode controlMode;
 
-    public BrowserSessionConflictPolicy(TimeSpan freshnessWindow, TimeSpan? browserGainHistoryWindow = null)
+    public BrowserSessionConflictPolicy(
+        TimeSpan freshnessWindow,
+        TimeSpan? browserGainHistoryWindow = null,
+        BrowserSessionControlMode controlMode = BrowserSessionControlMode.BrowserGainPriority)
     {
         this.freshnessWindow = freshnessWindow <= TimeSpan.Zero ? TimeSpan.FromSeconds(15) : freshnessWindow;
-        this.browserGainHistoryWindow = browserGainHistoryWindow.GetValueOrDefault(TimeSpan.FromSeconds(5));
-        if (this.browserGainHistoryWindow <= TimeSpan.Zero)
-        {
-            this.browserGainHistoryWindow = TimeSpan.FromSeconds(5);
-        }
+        this.controlMode = controlMode;
     }
 
     public VolumeDecision Apply(
@@ -44,9 +45,22 @@ public sealed class BrowserSessionConflictPolicy
             return decision;
         }
 
+        if (controlMode is BrowserSessionControlMode.GlobalWindowsSession)
+        {
+            return decision;
+        }
+
         if (!HasFreshBrowserGainConflict(session, browserSources, now))
         {
             return decision;
+        }
+
+        if (IsVoluntaryTargetChange(decision))
+        {
+            return decision with
+            {
+                Reason = FastTargetFallbackReason
+            };
         }
 
         return decision with
@@ -71,15 +85,7 @@ public sealed class BrowserSessionConflictPolicy
 
         foreach (var source in browserSources)
         {
-            var isCurrentBrowserGain = source.ControlSurface is AudioControlSurface.BrowserGain;
-            var hasRecentBrowserGainHistory = source.LastBrowserGainSeenUtc.HasValue &&
-                now - source.LastBrowserGainSeenUtc.Value <= browserGainHistoryWindow;
-            if (!isCurrentBrowserGain && !hasRecentBrowserGainHistory)
-            {
-                continue;
-            }
-
-            if (isCurrentBrowserGain && now - source.LastSeenUtc > freshnessWindow)
+            if (!IsBlockingBrowserGainSource(source, now))
             {
                 continue;
             }
@@ -98,6 +104,26 @@ public sealed class BrowserSessionConflictPolicy
         }
 
         return false;
+    }
+
+    private bool IsBlockingBrowserGainSource(BrowserSubSourceSnapshot source, DateTimeOffset now)
+    {
+        if (source.ControlSurface is not AudioControlSurface.BrowserGain)
+        {
+            return false;
+        }
+
+        if (now - source.LastSeenUtc > freshnessWindow)
+        {
+            return false;
+        }
+
+        return string.Equals(source.CalibrationState, "locked", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsVoluntaryTargetChange(VolumeDecision decision)
+    {
+        return string.Equals(decision.Reason, TargetVolumeProfilePolicy.ProfileTargetReason, StringComparison.Ordinal);
     }
 
     private static string NormalizeProcessName(string? value)
@@ -135,4 +161,10 @@ public sealed class BrowserSessionConflictPolicy
         if (value > 1.0f) return 1.0f;
         return value;
     }
+}
+
+public enum BrowserSessionControlMode
+{
+    GlobalWindowsSession,
+    BrowserGainPriority
 }

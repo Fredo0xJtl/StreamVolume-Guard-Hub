@@ -4,6 +4,8 @@ namespace StreamVolumeGuard.Core.Normalization;
 
 public sealed class VolumeNormalizer
 {
+    public const string ManualCooldownReason = "manual-cooldown";
+
     private readonly NormalizerSettings settings;
 
     public VolumeNormalizer(NormalizerSettings settings)
@@ -32,7 +34,7 @@ public sealed class VolumeNormalizer
 
         if (session.LastManualChangeUtc is { } manualChange && now - manualChange < settings.ManualCooldown)
         {
-            return new VolumeDecision(AudioSessionStatus.Safe, false, currentVolume, "manual-cooldown");
+            return new VolumeDecision(AudioSessionStatus.Safe, false, currentVolume, ManualCooldownReason);
         }
 
         var peak = Clamp(session.PeakLevel, 0.0f, 1.0f);
@@ -41,6 +43,11 @@ public sealed class VolumeNormalizer
         {
             var target = Math.Max(settings.MinVolumeScalar, currentVolume - settings.MaxStepDown);
             return new VolumeDecision(AudioSessionStatus.Risky, target != currentVolume, target, "peak-above-target");
+        }
+
+        if (session.IsSystemSession)
+        {
+            return new VolumeDecision(AudioSessionStatus.Safe, false, currentVolume, WindowsSystemSessionClassifier.ProtectOnlyReason);
         }
 
         if (peak <= settings.LowPeakLevel && currentVolume < settings.MaxVolumeScalar)

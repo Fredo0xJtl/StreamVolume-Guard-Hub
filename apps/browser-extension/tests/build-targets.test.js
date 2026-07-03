@@ -104,11 +104,10 @@ test("buildAllTargets writes clean dist folders with target manifests", () => {
       const testsPath = path.join(outputRoot, target.id, "tests");
       const toolsPath = path.join(outputRoot, target.id, "tools");
       const docsPath = path.join(outputRoot, target.id, "docs");
-      const roadmapPath = path.join(outputRoot, target.id, "docs", "future-implementation-roadmap.md");
       const userDocs = [
         "bug-report-template.md",
         "cross-browser-deployment.md",
-        "maintenance-checklist.md",
+        "privacy-policy.md",
         "streamer-quickstart-60s.md",
         "tester-checklist.md"
       ];
@@ -124,7 +123,6 @@ test("buildAllTargets writes clean dist folders with target manifests", () => {
           `${target.id} should include docs/${doc}`
         );
       }
-      assert.equal(fs.existsSync(roadmapPath), false, `${target.id} should not include the future roadmap`);
       assert.equal(fs.existsSync(gitPath), false, `${target.id} should not contain .git`);
       assert.equal(fs.existsSync(distPath), false, `${target.id} should not contain nested dist`);
       assert.equal(fs.existsSync(testsPath), false, `${target.id} should not contain tests`);

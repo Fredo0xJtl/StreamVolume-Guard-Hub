@@ -15,6 +15,7 @@ Role : couche globale PC.
 - Controle le volume de session Windows quand l'API le permet.
 - Marque les sessions inconnues ou non controlables au lieu de les masquer.
 - Heberge le bridge local `127.0.0.1:47841` quand l'app est lancee.
+- Reste utilisable seule et affiche clairement quand aucune extension n'a ete vue recemment.
 
 Surface de controle : `WindowsSessionVolume`.
 
@@ -26,6 +27,7 @@ Role : couche fine web.
 - Identifie des sous-sources comme YouTube, TikTok, Twitch, Spotify Web ou Deezer Web.
 - Peut appliquer un gain Web Audio sur une source web controlable.
 - Annonce ce qu'elle voit au desktop via `packages/protocol` et le bridge local quand le desktop est lance.
+- Reste utilisable seule et affiche `Mode autonome` si le desktop ne repond pas au health check local.
 
 Surface de controle : `BrowserGain` quand Web Audio ou capture d'onglet permet d'agir, sinon `ObserveOnly`.
 
@@ -50,15 +52,46 @@ Role : transport local.
 - Expose `GET /global-target` pour partager la cible voulue du desktop avec l'extension.
 - Refuse les messages invalides et journalise les erreurs.
 - Ne casse pas le desktop quand aucune extension n'est connectee.
+- Ne casse pas l'extension quand le desktop est ferme : le popup detecte simplement que l'app est absente et continue en mode autonome.
 - Lit le corps HTTP en octets, borne la taille des requetes et refuse les payloads invalides.
 - Accepte seulement les origines extension, `127.0.0.1`, `localhost` ou les outils locaux sans en-tete `Origin`.
 - Peut exiger un token local optionnel via `X-StreamVolume-Guard-Token` si `BridgeToken` est defini dans la config locale : `/browser-source`, `/extension-log` et `/global-target` sont proteges, `/health` reste ouvert pour le diagnostic local.
 
 ## Etat Actuel
 
-La base actuelle contient le contrat protocole, le modele desktop de sous-source navigateur, une simulation UI, un bridge local `127.0.0.1:47841` durci, un envoi extension `browser_source_observed` testable, un journal unifie local via `extension_log`, et une cible globale desktop lisible par l'extension via `GET /global-target`.
+La base actuelle contient le contrat protocole, le modele desktop de sous-source navigateur, une simulation UI, un bridge local `127.0.0.1:47841` durci, un envoi extension `browser_source_observed` testable, un journal unifie local via `extension_log`, une segmentation de logs par `runId` et `testSessionId`, une cible globale desktop lisible par l'extension via `GET /global-target`, un statut de liaison visible des deux cotes, et une calibration `BrowserGain` prioritaire quand une vraie source navigateur est controlable.
 
-Le comportement attendu est donc : afficher les sessions Windows reelles, afficher les sous-sources navigateur simulees quand aucune extension n'est connectee, recevoir les sous-sources navigateur reelles quand l'extension envoie ses evenements, synchroniser la cible voulue vers les onglets deja proteges, et garder les sources non controlables explicites.
+Le comportement attendu est donc : afficher les sessions Windows reelles, afficher les sous-sources navigateur simulees quand aucune extension n'est connectee, recevoir les sous-sources navigateur reelles quand l'extension envoie ses evenements, synchroniser la cible voulue vers les onglets deja proteges, afficher `App seule` ou `Extension connectee` cote desktop, afficher `Mode autonome` ou `App connectee` cote extension, et garder les sources non controlables explicites.
+
+Le protocole transporte les informations necessaires a une calibration navigateur fine : `currentLevel`, `appliedGain`, `targetRmsDb`, `targetProfile`, `controlSurface`, `isControllable`, `calibrationState`, `measuredRmsDb` et `appliedGainDb`. Quand une source navigateur est `BrowserGain` avec un signal exploitable, l'extension peut mesurer, appliquer un gain une fois, verrouiller, puis rearmer proprement. Le desktop evite alors les corrections automatiques concurrentes du volume Windows global du meme navigateur, sauf changement volontaire de cible ou fallback necessaire avant verrouillage.
+
+## Fonctionnement Seul Ou Ensemble
+
+### Desktop seul
+
+- Fonctionne sans extension.
+- Observe les sessions audio Windows et controle `WindowsSessionVolume`.
+- Gere `Auto actif`, profils de cible, exclusions, Panic, logs et snapshots locaux.
+- Regroupe les sons systeme Windows en source speciale : protection contre les pics, sans boost automatique.
+- Affiche `App seule` tant qu'aucune source ou log extension recent n'a ete recu.
+- Limite : si plusieurs onglets jouent dans le meme navigateur, Windows expose surtout une seule session navigateur.
+
+### Extension seule
+
+- Fonctionne sans desktop et affiche `Mode autonome`.
+- Detecte et protege les medias web quand le navigateur le permet.
+- Peut appliquer `BrowserGain` dans l'onglet/site si la source est controlable.
+- Classe honnetement en `ObserveOnly` ou `Unknown` quand elle ne peut pas agir.
+- N'envoie pas d'audio brut, d'URL complete, d'historique navigateur ou de telemetrie.
+
+### Desktop + extension
+
+- Le desktop heberge le bridge local `127.0.0.1:47841`.
+- L'extension lit `GET /health` et `GET /global-target`.
+- L'extension envoie `browser_source_observed` et `extension_log` au desktop.
+- Le desktop affiche `Extension connectee` apres reception recente.
+- Si `BrowserGain` est exploitable et `locked`, l'extension est prioritaire pour la sous-source navigateur.
+- Si la source web est encore `measuring`, `ObserveOnly`, `Unknown`, `skipped`, silencieuse ou inexploitable, le desktop peut utiliser le fallback `WindowsSessionVolume` du navigateur quand c'est coherent.
 
 ## Regle Anti Mauvaise Surprise
 
@@ -73,18 +106,19 @@ Si TikTok, YouTube et Spotify Web sont regroupes dans Chrome par Windows, le des
 
 ## Anti-Conflit
 
-- L'extension corrige les sous-sources web quand elle a `BrowserGain`.
-- Le desktop corrige le volume Windows global seulement quand c'est necessaire.
+- `BrowserGain` est prioritaire quand une source navigateur est controlable, fournit un signal exploitable et a atteint `calibrationState=locked`.
+- Le fallback `WindowsSessionVolume` reste disponible quand une seule page web joue, quand l'extension ne peut pas agir proprement, ou quand la cible vient d'etre changee volontairement et doit etre effective rapidement.
 - Le mode observation reste le premier outil de test pour voir les decisions avant de changer les volumes.
 - Les actions manuelles utilisateur gardent la priorite.
-- Un changement de cible globale rearme une calibration Windows ponctuelle et rafraichit les onglets navigateur deja proteges.
+- Les sons systeme Windows peuvent etre baisses pour proteger le live, mais ne sont pas remontes automatiquement comme une source musicale ou video.
+- Un changement de cible globale rearme une calibration Windows ponctuelle, puis rafraichit les onglets navigateur deja proteges. Cote desktop, ce changement peut appliquer immediatement un fallback `WindowsSessionVolume` visible. Cote navigateur, une source `BrowserGain` deja verrouillee recalcule immediatement son gain depuis la mesure fiable existante ; une source encore en mesure ou non fiable garde la fenetre robuste avant tout boost.
 - Panic reste une action explicite de securite live.
 
-Anti-conflit minimal implemente : quand une sous-source navigateur recente annonce `BrowserGain` et correspond a une session Windows navigateur, le desktop ne corrige pas cette session via `WindowsSessionVolume` pendant cette fenetre. Les logs utilisent `volume.browser_conflict_skip`.
+Mode implemente : `BrowserGainPriority` bloque la correction automatique de la session Windows navigateur correspondante uniquement quand une sous-source recente est controlable par l'extension et `calibrationState=locked`. Les logs utilisent `volume.browser_conflict_skip` pour ce blocage. Si la source est encore `measuring`, repasse `ObserveOnly`, `Unknown`, disparait ou ne fournit plus de niveau exploitable, le fallback Windows global peut reprendre. Un changement volontaire de cible utilise le reason `windows-fast-target` pour rendre l'action visible rapidement.
 
 ## Ordre De Livraison
 
-Le detail operationnel courant est dans `docs/product-next-plan.md`.
+Le detail testable public est dans `docs/tester-checklist.md` et l'etat de livraison reste resume dans `README.md` et `CHANGELOG.md`.
 
 1. Modele et protocole communs.
 2. Simulation locale de sous-source navigateur dans le desktop.

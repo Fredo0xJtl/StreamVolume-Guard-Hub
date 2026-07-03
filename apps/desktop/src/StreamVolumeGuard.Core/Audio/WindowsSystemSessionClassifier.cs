@@ -6,6 +6,7 @@ public static class WindowsSystemSessionClassifier
 {
     public const string GroupSessionId = "windows-system-sounds";
     public const string DisplayName = "Sons système Windows";
+    public const string ProtectOnlyReason = "system-sounds-protect-only";
 
     private const string AudioServiceResourceName = "AudioSrv.Dll";
     private const string AudioServiceResourceId = "-202";

@@ -83,6 +83,7 @@ main {
 .control-row,
 .field,
 .trust-strip,
+.desktop-link,
 .stream-status,
 .metrics,
 .diagnostics,
@@ -115,6 +116,41 @@ main {
   font-weight: 800;
   line-height: 1.15;
   text-align: center;
+}
+
+.desktop-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.desktop-link span {
+  color: #56616f;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.desktop-link strong {
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.desktop-link strong.is-connected {
+  background: #e8f8ef;
+  color: #0b6b35;
+}
+
+.desktop-link strong.is-standalone {
+  background: #fff5df;
+  color: #81590c;
 }
 
 .control-row {
@@ -483,6 +519,7 @@ button.help-button:hover {
   .control-row,
   .field,
   .trust-strip,
+  .desktop-link,
   .stream-status,
   .metrics,
   .diagnostics,
@@ -509,6 +546,7 @@ button.help-button:hover {
   .site,
   .profile-hint,
   label,
+  .desktop-link span,
   .stream-status span,
   .metrics span,
   .diagnostics h2,
@@ -518,6 +556,16 @@ button.help-button:hover {
 
   .diagnostics li {
     color: #d6dee6;
+  }
+
+  .desktop-link strong.is-connected {
+    background: #123d28;
+    color: #78e6a4;
+  }
+
+  .desktop-link strong.is-standalone {
+    background: #3a2d17;
+    color: #f2ca73;
   }
 
   #panicButton {

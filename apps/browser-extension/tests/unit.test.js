@@ -64,7 +64,17 @@ function loadCore() {
     "audio/analyser.js",
     "audio/limiter.js",
     "audio/stream-status.js",
+    "audio/browser-gain-calibration.js",
     "audio/normalizer.js"
+  ].forEach((file) => loadScript(context, file));
+  return context.StreamVolumeGuard;
+}
+
+function loadCalibrationCore() {
+  const context = createContext();
+  [
+    "audio/analyser.js",
+    "audio/browser-gain-calibration.js"
   ].forEach((file) => loadScript(context, file));
   return context.StreamVolumeGuard;
 }
@@ -278,6 +288,337 @@ test("target gain clamps boost and reduction", () => {
     }),
     -24
   );
+});
+
+test("browser gain calibration measures once applies gain and locks", () => {
+  const WLG = loadCalibrationCore();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration({
+    measurementWindowMs: 3500,
+    silenceRearmMs: 2500,
+    minUsableSignalMs: 1000
+  });
+
+  const started = calibration.update({
+    rmsDb: -27,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 0,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(started.calibrationState, "measuring");
+  assert.equal(started.events[0].eventName, "browser.calibration.started");
+
+  calibration.update({
+    rmsDb: -26,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 1800,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+
+  const applied = calibration.update({
+    rmsDb: -25,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 3600,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(applied.calibrationState, "locked");
+  assert.equal(applied.gainDb, 5);
+  assert.equal(applied.measuredRmsDb, -26);
+  assert.deepEqual(Array.from(applied.events, (event) => event.eventName), [
+    "browser.calibration.measured",
+    "browser.gain.applied",
+    "browser.gain.locked"
+  ]);
+
+  const locked = calibration.update({
+    rmsDb: -12,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 4200,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(locked.calibrationState, "locked");
+  assert.equal(locked.gainDb, 5);
+  assert.equal(locked.events.length, 0);
+
+  calibration.update({
+    rmsDb: -120,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 6000,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  const rearmed = calibration.update({
+    rmsDb: -120,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 8600,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(rearmed.calibrationState, "measuring");
+  assert.equal(rearmed.gainDb, 0);
+  assert.equal(rearmed.events[0].eventName, "browser.gain.rearmed");
+  assert.equal(rearmed.events[0].reason, "silence");
+});
+
+test("browser gain calibration retunes immediately when locked target changes", () => {
+  const WLG = loadCalibrationCore();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration({
+    measurementWindowMs: 3500,
+    minUsableSignalMs: 1000
+  });
+
+  [0, 1800, 3600].forEach((nowMs) => {
+    calibration.update({
+      rmsDb: -27,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:open.spotify.com",
+      targetSignature: "Standard|-21|initial"
+    });
+  });
+
+  const retuned = calibration.update({
+    rmsDb: -27,
+    targetRmsDb: -15,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 3700,
+    sourceKey: "media-html:open.spotify.com",
+    targetSignature: "Fort|-15|changed"
+  });
+
+  assert.equal(retuned.calibrationState, "locked");
+  assert.equal(retuned.measuredRmsDb, -27);
+  assert.equal(retuned.gainDb, 12);
+  assert.equal(retuned.appliedGainDb, 12);
+  assert.equal(retuned.calibrationReason, "target-changed");
+  assert.deepEqual(Array.from(retuned.events, (event) => event.eventName), [
+    "browser.gain.rearmed",
+    "browser.gain.applied",
+    "browser.gain.locked"
+  ]);
+});
+
+test("browser gain calibration waits for a robust window and uses the global tone", () => {
+  const WLG = loadCalibrationCore();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration();
+  let result = null;
+
+  [0, 1000, 2000, 3000, 4000].forEach((nowMs) => {
+    result = calibration.update({
+      rmsDb: -42,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:youtube.com",
+      targetSignature: "Fort|-21"
+    });
+  });
+
+  assert.equal(result.calibrationState, "measuring");
+  assert.equal(result.gainDb, 0, "quiet intro should not be boosted before the robust window completes");
+
+  [5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000].forEach((nowMs) => {
+    result = calibration.update({
+      rmsDb: -19,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:youtube.com",
+      targetSignature: "Fort|-21"
+    });
+  });
+
+  assert.equal(result.calibrationState, "locked");
+  assert.equal(result.measuredRmsDb, -19, "robust measurement should follow the dominant body, not the quiet intro average");
+  assert.equal(result.gainDb, -2);
+  assert.equal(result.calibrationReason, "stable-window-complete");
+});
+
+test("browser gain calibration skips when useful signal is too short", () => {
+  const WLG = loadCalibrationCore();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration();
+
+  [0, 1000, 2000, 3000].forEach((nowMs) => {
+    calibration.update({
+      rmsDb: -24,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:tiktok.com",
+      targetSignature: "Fort|-21"
+    });
+  });
+
+  calibration.update({
+    rmsDb: -120,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 4000,
+    sourceKey: "media-html:tiktok.com",
+    targetSignature: "Fort|-21"
+  });
+
+  const skipped = calibration.update({
+    rmsDb: -120,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 12000,
+    sourceKey: "media-html:tiktok.com",
+    targetSignature: "Fort|-21"
+  });
+
+  assert.equal(skipped.calibrationState, "skipped");
+  assert.equal(skipped.gainDb, 0);
+  assert.equal(skipped.calibrationReason, "insufficient-signal");
+  assert.equal(skipped.events[0].eventName, "browser.gain.skipped");
+});
+
+test("browser gain calibration attenuates dangerous loud starts without boosting quiet starts", () => {
+  const WLG = loadCalibrationCore();
+  const loudCalibration = WLG.BrowserGainCalibration.createBrowserGainCalibration();
+  const loud = loudCalibration.update({
+    rmsDb: -8,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 0,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+
+  assert.equal(loud.calibrationState, "measuring");
+  assert.ok(loud.gainDb < 0, "dangerous loud starts should be attenuated during measurement");
+  assert.equal(loud.calibrationReason, "safety-attenuation");
+  assert.ok(Array.from(loud.events, (event) => event.eventName).includes("browser.gain.applied"));
+
+  const quietCalibration = WLG.BrowserGainCalibration.createBrowserGainCalibration();
+  const quiet = quietCalibration.update({
+    rmsDb: -48,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 0,
+    sourceKey: "media-html:spotify.com",
+    targetSignature: "Fort|-21"
+  });
+
+  assert.equal(quiet.calibrationState, "measuring");
+  assert.equal(quiet.gainDb, 0, "quiet starts should not be boosted before enough signal is measured");
+});
+
+test("browser gain calibration rearms after a durable level shift", () => {
+  const WLG = loadCalibrationCore();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration({
+    measurementWindowMs: 3000,
+    minUsableSignalMs: 1000,
+    durableLevelShiftMs: 9000,
+    durableLevelShiftDb: 6
+  });
+
+  [0, 1000, 2000, 3000].forEach((nowMs) => {
+    calibration.update({
+      rmsDb: -28,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:youtube.com",
+      targetSignature: "Fort|-21"
+    });
+  });
+
+  let result = null;
+  [4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000].forEach((nowMs) => {
+    result = calibration.update({
+      rmsDb: -12,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:youtube.com",
+      targetSignature: "Fort|-21"
+    });
+  });
+
+  assert.equal(result.calibrationState, "locked", "short loud changes should not rearm immediately");
+
+  result = calibration.update({
+    rmsDb: -12,
+    targetRmsDb: -21,
+    maxBoostDb: 48,
+    maxReductionDb: -24,
+    nowMs: 13000,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+
+  assert.equal(result.calibrationState, "measuring");
+  assert.equal(result.events[0].eventName, "browser.gain.rearmed");
+  assert.equal(result.events[0].reason, "durable-level-shift");
+});
+
+test("browser gain calibration does not spam disabled skips and rearms when enabled again", () => {
+  const WLG = loadCalibrationCore();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration();
+
+  const skipped = calibration.update({
+    enabled: false,
+    rmsDb: -24,
+    targetRmsDb: -21,
+    nowMs: 0,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(skipped.calibrationState, "skipped");
+  assert.equal(skipped.events.length, 1);
+  assert.equal(skipped.events[0].eventName, "browser.gain.skipped");
+
+  const repeated = calibration.update({
+    enabled: false,
+    rmsDb: -24,
+    targetRmsDb: -21,
+    nowMs: 100,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(repeated.calibrationState, "skipped");
+  assert.equal(repeated.events.length, 0);
+
+  const reenabled = calibration.update({
+    enabled: true,
+    rmsDb: -24,
+    targetRmsDb: -21,
+    nowMs: 200,
+    sourceKey: "media-html:youtube.com",
+    targetSignature: "Fort|-21"
+  });
+  assert.equal(reenabled.calibrationState, "measuring");
+  assert.equal(reenabled.events.length, 1);
+  assert.equal(reenabled.events[0].eventName, "browser.gain.rearmed");
+  assert.equal(reenabled.events[0].reason, "enabled");
 });
 
 test("free tier exposes local streamer-safe capabilities", () => {
@@ -566,6 +907,31 @@ test("audible no-signal tab capture falls back to media HTML after one restart",
   assert.match(backgroundSource, /WLG_STOP_TAB_CAPTURE/);
   assert.match(backgroundSource, /captureStatuses\.delete\(tabId\);[\s\S]*injectAndSet\(tab, true\)/);
   assert.match(backgroundSource, /shouldFallbackSilentCaptureToMedia\(updatedStatus\)/);
+});
+
+test("audible silent media HTML upgrades generically to tab capture", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  const settingsSource = fs.readFileSync(path.join(root, "storage", "settings.js"), "utf8");
+
+  assert.match(backgroundSource, /SILENT_MEDIA_UPGRADE_MIN_REPORTS/);
+  assert.match(backgroundSource, /silentMediaUpgradeCandidates/);
+  assert.match(backgroundSource, /function shouldUpgradeSilentMediaToTabCapture\(tab, status\)/);
+  assert.match(backgroundSource, /status\.sourceType !== "media-html"/);
+  assert.match(backgroundSource, /tab\.audible === true/);
+  assert.match(backgroundSource, /recordSilentMediaUpgradeCandidate\(tab, status\)/);
+  assert.match(backgroundSource, /startTabCaptureForTab\(tab, \{ replaceMedia: true, reason: "media-html-silent" \}\)/);
+  assert.doesNotMatch(backgroundSource, /spotify/i);
+  assert.doesNotMatch(settingsSource, /spotify\.com"[^}]*sourceType: "tab-capture"/);
+});
+
+test("silent media HTML upgrade cooldown prevents tab capture fallback loops", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /SILENT_MEDIA_UPGRADE_COOLDOWN_MS/);
+  assert.match(backgroundSource, /silentMediaUpgradeCooldowns/);
+  assert.match(backgroundSource, /function markSilentMediaUpgradeCooldown\(tabId, reason\)/);
+  assert.match(backgroundSource, /isSilentMediaUpgradeCoolingDown\(tab\.id\)/);
+  assert.match(backgroundSource, /markSilentMediaUpgradeCooldown\(tabId, "tab-capture-no-signal"\)/);
 });
 
 test("background refresh stops active capture when a domain becomes excluded", () => {
@@ -1893,6 +2259,15 @@ test("popup exposes one protect action while background routes to the best audio
   assert.match(backgroundSource, /WLG_PROTECT_CURRENT_TAB/);
 });
 
+test("media html activation retries content status before reporting failure", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /function sendMessageWithRetry\(tabId, message/);
+  assert.match(backgroundSource, /await sendMessageWithRetry\(tab\.id,\s*\{\s*type: "WLG_SET_ENABLED"/);
+  assert.match(backgroundSource, /Activation impossible sur cet onglet/);
+  assert.doesNotMatch(backgroundSource, /return response \|\| \{ ok: true \};/);
+});
+
 test("popup upgrades dynamic platform protection instead of stopping stale html media mode", () => {
   const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
 
@@ -2023,6 +2398,22 @@ test("popup exposes streamer safety status, contained peaks and diagnostics", ()
   assert.match(html, /id="containedPeaksValue"/);
   assert.match(html, /id="diagnosticsList"/);
   assert.match(html, /data-i18n="popupDiagnostics"/);
+});
+
+test("popup exposes desktop bridge status while keeping standalone mode usable", () => {
+  const html = fs.readFileSync(path.join(root, "popup", "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+  const bridgeScriptIndex = html.indexOf("../bridge/client.js");
+  const popupScriptIndex = html.indexOf("popup.js");
+
+  assert.ok(bridgeScriptIndex >= 0, "popup should load the local bridge client");
+  assert.ok(popupScriptIndex > bridgeScriptIndex, "bridge client should load before popup.js");
+  assert.match(html, /id="desktopLinkStatus"/);
+  assert.match(html, /data-i18n="popupDesktopLink"/);
+  assert.match(js, /desktopLinkStatus:\s*document\.getElementById\("desktopLinkStatus"\)/);
+  assert.match(js, /BridgeClient\.checkDesktopBridgeHealth/);
+  assert.match(js, /desktopBridgeConnected:/);
+  assert.match(js, /desktopBridgeMode:/);
 });
 
 test("popup copied diagnostic contains actionable local-safe fields", () => {
@@ -2449,40 +2840,20 @@ test("english and french locale files contain diagnostic export messages", () =>
   });
 });
 
-test("public docs expose privacy policy, platform validation and release packaging", () => {
+test("public docs expose privacy policy and release packaging", () => {
   const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
   const testerChecklist = fs.readFileSync(path.join(root, "docs", "tester-checklist.md"), "utf8");
-  const roadmap = fs.readFileSync(path.join(root, "docs", "future-implementation-roadmap.md"), "utf8");
   const privacy = fs.readFileSync(path.join(root, "docs", "privacy-policy.md"), "utf8");
-  const realPlatformPlan = fs.readFileSync(path.join(root, "docs", "real-platform-test-plan.md"), "utf8");
-  const maintenanceChecklist = fs.readFileSync(path.join(root, "docs", "maintenance-checklist.md"), "utf8");
   const packageRelease = fs.readFileSync(path.join(root, "tools", "package-release.js"), "utf8");
 
   assert.match(readme, /docs\/privacy-policy\.md/);
-  assert.match(readme, /docs\/real-platform-test-plan\.md/);
-  assert.match(readme, /docs\/maintenance-checklist\.md/);
   assert.doesNotMatch(readme, /Universel/);
   assert.match(readme, /YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web/);
   assert.match(readme, /node tools\/package-release\.js/);
-  assert.match(testerChecklist, /docs\/real-platform-test-plan\.md/);
   assert.match(testerChecklist, /Moyenne RMS traitée/);
   assert.match(testerChecklist, /Peak OBS estimé/);
-  assert.match(roadmap, /tools\/package-release\.js/);
-  assert.match(roadmap, /docs\/privacy-policy\.md/);
-  assert.match(roadmap, /docs\/maintenance-checklist\.md/);
   assert.match(privacy, /Aucun enregistrement audio/);
   assert.match(privacy, /aucune telemetrie automatique/i);
-  assert.match(realPlatformPlan, /YouTube/);
-  assert.doesNotMatch(realPlatformPlan, /Universel/);
-  assert.match(realPlatformPlan, /profil `Stream`/);
-  assert.match(realPlatformPlan, /Spotify web/);
-  assert.match(realPlatformPlan, /Deezer web/);
-  assert.match(maintenanceChecklist, /-63 dB RMS/);
-  assert.match(maintenanceChecklist, /-43 dB RMS/);
-  assert.match(maintenanceChecklist, /-4 dB RMS/);
-  assert.match(maintenanceChecklist, /-21 dB RMS/);
-  assert.match(maintenanceChecklist, /dist\/chromium/);
-  assert.match(maintenanceChecklist, /graphify update \./);
   assert.match(packageRelease, /release-assets/);
   assert.match(packageRelease, /Compress-Archive/);
   assert.match(packageRelease, /projectEntries/);
@@ -2491,8 +2862,7 @@ test("public docs expose privacy policy, platform validation and release packagi
 test("public docs do not advertise removed options controls", () => {
   const docs = [
     "README.md",
-    "docs/tester-checklist.md",
-    "docs/future-implementation-roadmap.md"
+    "docs/tester-checklist.md"
   ].map((file) => fs.readFileSync(path.join(root, file), "utf8")).join("\n");
 
   assert.doesNotMatch(docs, /Copier le rapport de bug/);
@@ -2528,6 +2898,18 @@ test("local bridge client can read the desktop global target", () => {
   assert.match(bridgeSource, /global_target_state/);
   assert.match(bridgeSource, /targetRmsDb/);
   assert.match(bridgeSource, /targetProfile/);
+});
+
+test("local bridge client can check desktop health without taking control", () => {
+  const bridgeSource = fs.readFileSync(path.join(root, "bridge", "client.js"), "utf8");
+
+  assert.match(bridgeSource, /LOCAL_HEALTH_ENDPOINT\s*=\s*"http:\/\/127\.0\.0\.1:47841\/health"/);
+  assert.match(bridgeSource, /async function checkDesktopBridgeHealth\(\)/);
+  assert.match(bridgeSource, /fetch\(LOCAL_HEALTH_ENDPOINT/);
+  assert.match(bridgeSource, /connected:\s*true/);
+  assert.match(bridgeSource, /mode:\s*"desktop"/);
+  assert.match(bridgeSource, /mode:\s*"standalone"/);
+  assert.match(bridgeSource, /checkDesktopBridgeHealth/);
 });
 
 test("local bridge client sends privacy-safe extension logs only to localhost", () => {
@@ -2593,9 +2975,25 @@ test("content forwards sanitized browser source status to background", () => {
   assert.match(contentSource, /siteName:\s*state\.site/);
   assert.match(contentSource, /targetRmsDb:\s*state\.targetRmsDb/);
   assert.match(contentSource, /targetProfile:\s*settings\.desktopTargetProfile\s*\|\|\s*state\.activeProfile/);
-  assert.match(contentSource, /controlSurface:\s*state\.enabled\s*\?\s*"BrowserGain"\s*:\s*"ObserveOnly"/);
-  assert.match(contentSource, /isControllable:\s*state\.enabled/);
+  assert.match(contentSource, /function getBrowserControlSurface\(\)/);
+  assert.match(contentSource, /state\.enabled && state\.calibrationState !== "skipped" \? "BrowserGain" : "ObserveOnly"/);
+  assert.match(contentSource, /isControllable:\s*controlSurface === "BrowserGain"/);
+  assert.match(contentSource, /calibrationState:\s*state\.calibrationState/);
+  assert.match(contentSource, /measuredRmsDb:\s*state\.measuredRmsDb/);
+  assert.match(contentSource, /appliedGainDb:\s*state\.appliedGainDb/);
   assert.doesNotMatch(contentSource, /location\.href/);
+});
+
+test("normalizer uses browser gain calibration instead of chasing browser sources forever", () => {
+  const normalizerSource = fs.readFileSync(path.join(root, "audio", "normalizer.js"), "utf8");
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  const offscreenHtml = fs.readFileSync(path.join(root, "offscreen", "offscreen.html"), "utf8");
+
+  assert.match(backgroundSource, /"audio\/browser-gain-calibration\.js"/);
+  assert.match(offscreenHtml, /audio\/browser-gain-calibration\.js/);
+  assert.match(normalizerSource, /BrowserGainCalibration\.createBrowserGainCalibration/);
+  assert.match(normalizerSource, /onCalibrationEvent/);
+  assert.match(normalizerSource, /calibration\.gainDb/);
 });
 
 test("background forwards browser source status to local bridge client", () => {
@@ -2607,6 +3005,8 @@ test("background forwards browser source status to local bridge client", () => {
   assert.match(backgroundSource, /browserProcess:\s*source\.browserProcess\s*\|\|\s*""/);
   assert.match(backgroundSource, /targetRmsDb:\s*source\.targetRmsDb/);
   assert.match(backgroundSource, /targetProfile:\s*source\.targetProfile\s*\|\|\s*source\.activeProfile\s*\|\|\s*""/);
+  assert.match(backgroundSource, /calibrationState:\s*source\.calibrationState/);
+  assert.match(backgroundSource, /appliedGainDb:\s*source\.appliedGainDb/);
 });
 
 test("background forwards tab capture status to local bridge client", () => {
@@ -2617,7 +3017,7 @@ test("background forwards tab capture status to local bridge client", () => {
   assert.match(backgroundSource, /sourceId:\s*`tab-capture:\$\{normalizedTabId \|\| "unknown"\}`/);
   assert.match(backgroundSource, /targetRmsDb:\s*source\.targetRmsDb/);
   assert.match(backgroundSource, /targetProfile:\s*source\.targetProfile\s*\|\|\s*source\.activeProfile\s*\|\|\s*""/);
-  assert.match(backgroundSource, /captureSignalState\s*===\s*"signal"\s*\?\s*"BrowserGain"\s*:\s*"ObserveOnly"/);
+  assert.match(backgroundSource, /captureSignalState\s*===\s*"signal" && source\.calibrationState !== "skipped" \? "BrowserGain" : "ObserveOnly"/);
   assert.match(backgroundSource, /BridgeClient\.sendBrowserSourceObserved\(message\)/);
 });
 
@@ -2628,6 +3028,8 @@ test("background forwards useful extension log events to local bridge client", (
   assert.match(backgroundSource, /BridgeClient\.sendExtensionLog/);
   assert.match(backgroundSource, /browser\.target\.synced/);
   assert.match(backgroundSource, /tabcapture\.status/);
+  assert.match(backgroundSource, /WLG_EXTENSION_LOG/);
+  assert.match(backgroundSource, /browser\.gain\.applied/);
   assert.match(backgroundSource, /captureSignalState:\s*source\.captureSignalState/);
 });
 

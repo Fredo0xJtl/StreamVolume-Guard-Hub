@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="popup.css">
     <script src="../storage/settings.js" defer></script>
     <script src="../license/capabilities.js" defer></script>
+    <script src="../bridge/client.js" defer></script>
     <script src="popup.js" defer></script>
   </head>
   <body>
@@ -27,6 +28,11 @@
         <span data-i18n="trustLocalOnly">Local only</span>
         <span data-i18n="trustOpenSource">Open source</span>
         <span data-i18n="trustNoTracking">No tracking</span>
+      </section>
+
+      <section class="desktop-link" aria-label="Desktop bridge status">
+        <span data-i18n="popupDesktopLink">Desktop app</span>
+        <strong id="desktopLinkStatus" class="is-standalone" data-i18n="popupDesktopStandalone">Standalone mode</strong>
       </section>
 
       <section class="control-row">

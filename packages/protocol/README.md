@@ -11,6 +11,8 @@
 
 Le protocole definit la forme des messages. La version testable utilise `browser_source_observed` pour transporter les sous-sources navigateur de l'extension vers le desktop via le bridge local, et `extension_log` pour ajouter certains evenements extension au journal local desktop.
 
+Le protocole annonce le niveau courant (`currentLevel`), le gain applique (`appliedGain`), la cible (`targetRmsDb`, `targetProfile`), la surface de controle (`controlSurface`), la controlabilite (`isControllable`) et l'etat de calibration navigateur (`calibrationState`, `measuredRmsDb`, `appliedGainDb`, `calibrationReason`). La decision reste portee par les apps : l'extension applique `BrowserGain` quand elle controle vraiment la source, le desktop bloque les corrections Windows concurrentes seulement quand ce `BrowserGain` est verrouille, et le fallback Windows reste possible pour `measuring`, `ObserveOnly`, `Unknown`, `skipped`, `no-signal` ou changement volontaire de cible.
+
 ## Regle De Couverture
 
 Chaque source doit annoncer son origine et sa surface de controle. C'est obligatoire pour eviter de decouvrir trop tard qu'une source ne peut pas etre equilibree.
@@ -49,11 +51,15 @@ Une source peut etre disponible mais non controlable. Dans ce cas, l'UI et les l
   "lastSeen": "2026-07-01T18:00:00.000Z",
   "origin": "BrowserExtension",
   "controlSurface": "BrowserGain",
-  "isControllable": true
+  "isControllable": true,
+  "calibrationState": "locked",
+  "measuredRmsDb": -26.0,
+  "appliedGainDb": 5.0,
+  "calibrationReason": "stable-window-complete"
 }
 ```
 
-`targetRmsDb` et `targetProfile` sont optionnels. Ils indiquent la cible appliquee par l'extension quand elle est connue, notamment apres synchro avec `GET /global-target`.
+`targetRmsDb` et `targetProfile` sont optionnels. Ils indiquent la cible appliquee ou visee par l'extension quand elle est connue, notamment apres synchro avec `GET /global-target`. Les champs de calibration sont optionnels aussi, mais ils doivent rester coherents : `locked` avec `stable-window-complete` indique une source `BrowserGain` calibree apres une fenetre robuste ; `measuring` indique que le desktop peut encore utiliser le fallback Windows si une reaction rapide est necessaire ; `safety-attenuation` indique une attenuation temporaire de debut dangereux ; `insufficient-signal` ou `skipped` indique que le fallback Windows global peut redevenir acceptable.
 
 ## Confidentialite
 
@@ -81,6 +87,10 @@ Le champ `title` est optionnel et doit rester un affichage/debug local. Si une v
   "siteName": "TikTok",
   "status": "Unknown",
   "controlSurface": "ObserveOnly",
+  "calibrationState": "skipped",
+  "measuredRmsDb": null,
+  "appliedGainDb": null,
+  "calibrationReason": "no-signal",
   "captureSignalState": "no-signal",
   "targetRmsDb": -18,
   "targetProfile": "Standard",

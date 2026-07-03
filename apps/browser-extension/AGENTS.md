@@ -1,86 +1,53 @@
-# AGENTS.md
+# AGENTS.md - StreamVolume Guard Hub Browser Extension
 
-Guide de travail pour StreamVolume Guard Hub. Ce fichier sert aux contributeurs humains et aux assistants IA qui travaillent sur le projet.
+Guide local pour travailler dans `apps/browser-extension`.
 
-## Objectif Du Projet
+## Role Dans Le Hub
 
-StreamVolume Guard Hub aide les streamers à garder un volume navigateur plus stable pendant un live, sans tracker, sans collecte de données et avec un traitement audio local.
+Cette extension est la couche fine navigateur de StreamVolume Guard Hub.
 
-La priorité est de livrer une extension simple, fiable et compréhensible avant d'ajouter des optimisations ou des capacités avancées.
+- Elle observe les medias web quand le navigateur le permet.
+- Elle applique `BrowserGain` seulement quand elle controle vraiment la source.
+- Elle envoie les sous-sources et logs utiles au desktop via le bridge local `127.0.0.1:47841`.
+- Elle reste utilisable seule en `Mode autonome` quand le desktop est ferme.
 
-## Principes Non Négociables
+## Regles Produit
 
-- Open source, code lisible et sans obfuscation.
-- Aucune télémétrie automatique.
-- Aucune collecte d'audio, d'historique ou de données personnelles.
-- Permissions Manifest V3 minimales.
-- Réglages stockés localement par défaut.
-- Expérience pensée d'abord pour les streamers.
-- MVP fonctionnel avant complexité technique.
+- Ne pas ajouter de patch moteur cible du type `if TikTok`, `if YouTube`, `if Spotify`.
+- Garder les sources non controlables visibles en `ObserveOnly`, `Unknown` ou `skipped`.
+- Ne jamais promettre un controle par onglet si le signal n'est pas exploitable.
+- Ne pas envoyer d'audio brut, d'URL complete, d'historique navigateur, de token ou de donnees personnelles.
+- Garder la compatibilite avec le desktop via `packages/protocol`.
 
-## Méthode De Travail
+## Regles Techniques
 
-Avant une modification importante :
+- Garder la logique audio dans `audio/`.
+- Garder le transport local dans `bridge/`.
+- Garder la coordination navigateur dans `background.js` et `content.js` sans fusionner avec le desktop.
+- Preferer des modules petits et testables avant d'ajouter de la logique a `background.js` ou `tests/unit.test.js`.
+- Garder l'extension fonctionnelle sans desktop : le health check local doit seulement indiquer `Mode autonome`.
 
-1. Comprendre le besoin utilisateur.
-2. Identifier les options possibles.
-3. Cartographier l'impact produit, technique et maintenance.
-4. Chercher les risques avant de coder.
-5. Recommander l'option la plus simple qui résout vraiment le problème.
-6. Implémenter seulement après validation explicite.
+## BrowserGain
 
-Exception : si une demande commence par `!`, traiter la demande directement et garder le changement minimal.
+La calibration prioritaire doit rester prudente :
 
-## Priorités Produit
+- mesurer sur une fenetre robuste avant de booster ;
+- attenuer vite un debut dangereux si necessaire ;
+- appliquer un gain une fois puis verrouiller ;
+- rearmer seulement sur silence durable, changement source/media, changement de cible ou niveau durablement different ;
+- laisser le fallback `WindowsSessionVolume` au desktop quand la source est `measuring`, `ObserveOnly`, `Unknown`, `skipped` ou `no-signal`.
 
-Ordre de décision recommandé :
+## Validation
 
-1. Protéger le streamer contre les pics audio.
-2. Garder le son agréable, sans pompage audible.
-3. Rendre l'état de l'extension clair en live.
-4. Garder la configuration simple pour un testeur.
-5. Préserver la confiance : local, open source, zéro tracker.
-6. Préparer les futures fonctions sans alourdir la V1.
-
-## Règles Techniques
-
-- Suivre l'architecture existante : `audio/`, `storage/`, `popup/`, `options/`, `license/`.
-- Ne pas traiter deux fois le même média.
-- Garder la logique audio séparée de l'interface.
-- Préserver la possibilité d'ajouter `chrome.tabCapture` plus tard.
-- Ne pas ajouter de dépendance ou de build tool sans raison forte.
-- Préférer des modules petits, testables et nommés clairement.
-- Mettre à jour la documentation quand le comportement utilisateur change.
-- Mettre à jour `CHANGELOG.md` dès qu'un changement public ajoute, modifie, corrige ou clarifie quelque chose pour les utilisateurs ou testeurs.
-
-## Avant Une Pull Request Ou Une Release
-
-Vérifier au minimum :
+Depuis la racine du repo :
 
 ```powershell
-node tests/unit.test.js
-node tests/build-targets.test.js
-node tests/dist-packages.test.js
-node tests/branding.test.js
-node tests/browser-smoke.js
-node --check background.js
-node --check content.js
-node --check popup/popup.js
-node --check options/options.js
+node "apps/browser-extension/tests/unit.test.js"
+node --check "apps/browser-extension/audio/browser-gain-calibration.js"
+node --check "apps/browser-extension/audio/normalizer.js"
+node --check "apps/browser-extension/bridge/client.js"
+node --check "apps/browser-extension/background.js"
+node --check "apps/browser-extension/content.js"
 ```
 
-Pour une release, suivre la checklist interne mainteneur avant de publier une version ou de partager un build à des testeurs.
-Utiliser des messages de commit en français pour garder l'historique public lisible.
-
-## graphify
-
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
-
-When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
-
-Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+Mettre a jour `CHANGELOG.md`, `apps/browser-extension/README.md`, `docs/tester-checklist.md` ou `.docs/implementation-prompts.md` quand le comportement testeur change.

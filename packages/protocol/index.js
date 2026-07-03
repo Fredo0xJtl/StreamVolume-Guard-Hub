@@ -14,6 +14,7 @@ const CONTROL_SURFACES = Object.freeze({
 
 const STATUSES = Object.freeze(["Safe", "Risky", "Low", "Muted", "Excluded", "Unknown"]);
 const TARGET_PROFILES = Object.freeze(["Calme", "Standard", "Fort", "Personnalise"]);
+const CALIBRATION_STATES = Object.freeze(["", "measuring", "applied", "locked", "skipped", "rearmed"]);
 const LOG_SEVERITIES = Object.freeze(["debug", "info", "warn", "error"]);
 const TARGET_MIN_DB = -30;
 const TARGET_MAX_DB = -15;
@@ -43,6 +44,10 @@ function normalizeBrowserSourceMessage(message) {
     title: normalizeOptionalString(message.title) || "",
     currentLevel: clampScalar(message.currentLevel),
     appliedGain: clampScalar(message.appliedGain),
+    calibrationState: normalizeCalibrationState(message.calibrationState),
+    measuredRmsDb: normalizeOptionalAudioDb(message.measuredRmsDb),
+    appliedGainDb: normalizeOptionalGainDb(message.appliedGainDb),
+    calibrationReason: normalizeOptionalString(message.calibrationReason),
     targetRmsDb: normalizeOptionalTargetDb(message.targetRmsDb),
     targetProfile: normalizeOptionalString(message.targetProfile),
     status,
@@ -105,6 +110,10 @@ function normalizeExtensionLogMessage(message) {
     status: normalizeEnum(message.status || "Unknown", STATUSES, "status"),
     controlSurface,
     captureSignalState: normalizeOptionalString(message.captureSignalState),
+    calibrationState: normalizeCalibrationState(message.calibrationState),
+    measuredRmsDb: normalizeOptionalAudioDb(message.measuredRmsDb),
+    appliedGainDb: normalizeOptionalGainDb(message.appliedGainDb),
+    calibrationReason: normalizeOptionalString(message.calibrationReason),
     targetRmsDb: normalizeOptionalTargetDb(message.targetRmsDb),
     targetProfile: normalizeOptionalString(message.targetProfile),
     lastSeen: normalizeTimestamp(message.lastSeen)
@@ -138,6 +147,11 @@ function normalizeEventName(value) {
 function normalizeSeverity(value) {
   const normalized = normalizeOptionalString(value).toLowerCase();
   return LOG_SEVERITIES.includes(normalized) ? normalized : "info";
+}
+
+function normalizeCalibrationState(value) {
+  const normalized = normalizeOptionalString(value);
+  return CALIBRATION_STATES.includes(normalized) ? normalized : "";
 }
 
 function redactUrlLikeText(value) {
@@ -196,10 +210,29 @@ function normalizeOptionalTargetDb(value) {
   return number;
 }
 
+function normalizeOptionalAudioDb(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  if (number < -120) return -120;
+  if (number > 24) return 24;
+  return number;
+}
+
+function normalizeOptionalGainDb(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  if (number < -48) return -48;
+  if (number > 48) return 48;
+  return number;
+}
+
 module.exports = {
   SOURCE_ORIGINS,
   CONTROL_SURFACES,
   STATUSES,
+  CALIBRATION_STATES,
   LOG_SEVERITIES,
   TARGET_PROFILES,
   TARGET_MIN_DB,

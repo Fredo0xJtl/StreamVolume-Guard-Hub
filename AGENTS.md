@@ -1,6 +1,6 @@
 # AGENTS.md - StreamVolume Guard Hub
 
-Guide de travail pour les contributeurs humains et les assistants IA dans ce dossier.
+Guide de travail pour les contributeurs humains et les assistants IA dans ce depot.
 
 ## Methode Produit Obligatoire
 
@@ -43,7 +43,7 @@ Ne jamais promettre qu'une source est equilibree si elle est seulement observee.
 - Pas de patch moteur cible du type `if TikTok`, `if Chrome`, `if Spotify`.
 - Garder desktop, extension et protocole separes.
 - Ne pas publier de release GitHub ni tag sans demande explicite de l'utilisateur.
-- Ne pas modifier les dossiers generes : `bin/`, `obj/`, `dist/`, `build/`, `out/`, `release-assets/`, `release/`, `releases/`, `graphify-out/`, `.graphify/`, `node_modules/`.
+- Ne pas modifier les dossiers generes : `bin/`, `obj/`, `dist/`, `build/`, `out/`, `release-assets/`, `release/`, `releases/`, `graphify-out/`, `.graphify/`, `node_modules/`, `artifacts/`.
 
 ## Graphify
 
@@ -58,22 +58,42 @@ Si Graphify est absent, ne pas bloquer : faire une analyse classique en lisant u
 
 ## Documents Sources
 
+Sources publiques :
+
 - Vision hybride : `docs/hybrid-architecture.md`
-- Plan produit courant : `docs/product-next-plan.md`
-- Checklist testeur : `docs/tester-checklist.md`
 - Cahier couche desktop : `docs/desktop-v1-cahier-des-charges.md`
+- Checklist testeur : `docs/tester-checklist.md`
 - Protocole : `packages/protocol/README.md`
+- Desktop : `apps/desktop/README.md`
 - Extension navigateur : `apps/browser-extension/README.md`
 
-Les fichiers dans `docs/superpowers/plans/` sont des archives de travail, pas la source de verite actuelle.
+Sources locales privees quand `.docs/` existe :
+
+- Plan produit courant : `.docs/product-next-plan.md`
+- Prompts de suite : `.docs/implementation-prompts.md`
+- Checklist mainteneur : `.docs/maintainer-checklist.md`
+- Onboarding mainteneur : `.docs/onboarding-maintainer.md`
+
+Les fichiers dans `.docs/superpowers/plans/` sont des archives de travail, pas la source de verite actuelle.
+
+## Maintenabilite Humaine
+
+La maintenabilite est une exigence produit. Une personne doit pouvoir reprendre le projet en cours sans connaitre l'historique des conversations.
+
+- Preferer des modules avec une responsabilite claire.
+- Eviter d'ajouter de nouvelles fonctions dans un fichier deja trop central sans plan de decoupage.
+- Documenter le point d'entree du changement dans README, plan produit, checklist ou onboarding mainteneur.
+- Garder les tests lisibles par domaine quand un fichier de test devient trop massif.
+- Ne pas masquer les limites techniques derriere du wording produit.
+
 ## Maintenance Continue
 
 Apres chaque implementation, verifier et mettre a jour les artefacts de pilotage concernes :
 
 - `CHANGELOG.md` pour tout changement produit, test, doc, workflow GitHub, packaging ou limite utilisateur.
-- `docs/implementation-prompts.md` si l'ordre de suite, les prompts a venir ou l'etat des paquets changent.
-- `docs/product-next-plan.md` si le statut fait/pas fait ou les prochaines priorites changent.
-- `docs/tester-checklist.md` et `docs/maintainer-checklist.md` si les tests, commandes, logs ou procedures changent.
+- `.docs/implementation-prompts.md` si l'ordre de suite, les prompts a venir ou l'etat des paquets changent.
+- `.docs/product-next-plan.md` si le statut fait/pas fait ou les prochaines priorites changent.
+- `docs/tester-checklist.md` et `.docs/maintainer-checklist.md` si les tests, commandes, logs ou procedures changent.
 - README, CONTRIBUTING et `.github/` si le lancement, la contribution, CI, PR ou les rapports d'issues changent.
 
 Ne pas attendre la fin du projet pour corriger ces fichiers : ils doivent rester alignes au fur et a mesure.

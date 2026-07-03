@@ -117,11 +117,7 @@ http://127.0.0.1:8787/test-page.html
 
 ## 5. Tests Sur Sites Réels
 
-Pour une validation plus structurée, utiliser aussi :
-
-```text
-docs/real-platform-test-plan.md
-```
+Pour une validation plus structuree, garder une source a la fois et noter le navigateur, le site, le statut de capture, le niveau moyen et le resultat entendu.
 
 Tester au minimum :
 

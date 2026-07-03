@@ -55,11 +55,28 @@
             <Setter Property="Foreground" Value="#F4F8FB" />
         </Style>
 
+        <Style x:Key="DebugButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Padding" Value="9,3" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="6,2,0,2" />
+        </Style>
+
         <Style x:Key="PanicButtonStyle" TargetType="Button" BasedOn="{StaticResource HeaderButtonStyle}">
             <Setter Property="Background" Value="#B82828" />
             <Setter Property="BorderBrush" Value="#B82828" />
             <Setter Property="Foreground" Value="#FFFFFF" />
             <Setter Property="MinWidth" Value="92" />
+        </Style>
+
+        <Style x:Key="TargetPresetButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Style.Triggers>
+                <Trigger Property="Tag" Value="Active">
+                    <Setter Property="Background" Value="{DynamicResource SafeBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource SafeBrush}" />
+                    <Setter Property="Foreground" Value="#FFFFFF" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <Style TargetType="CheckBox">
@@ -185,6 +202,13 @@
                         </StackPanel>
                     </Border>
                 </Grid>
+
+                <Border Grid.Row="1" Style="{StaticResource SummaryCardStyle}" Margin="0,8,0,0" Padding="10">
+                    <DockPanel LastChildFill="True">
+                        <TextBlock Text="Liaison extension" Foreground="{DynamicResource AccentBrush}" FontSize="11" FontWeight="Black" Margin="0,0,12,0" VerticalAlignment="Center" />
+                        <TextBlock x:Name="ExtensionLinkStatusText" Text="{Binding ExtensionLinkText}" Foreground="{DynamicResource MutedTextBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </DockPanel>
+                </Border>
             </Grid>
 
             <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Margin="0,0,0,14">
@@ -203,13 +227,13 @@
 
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <Button Content="Calme" MinWidth="82" Margin="0,0,8,0" Click="TargetQuiet_Click" />
-                            <Button Content="Standard" MinWidth="92" Margin="0,0,8,0" Click="TargetStandard_Click" />
-                            <Button Content="Fort" MinWidth="72" Click="TargetLoud_Click" />
+                            <Button x:Name="TargetQuietButton" Content="Calme" Style="{StaticResource TargetPresetButtonStyle}" MinWidth="82" Margin="0,0,8,0" Click="TargetQuiet_Click" />
+                            <Button x:Name="TargetStandardButton" Content="Standard" Style="{StaticResource TargetPresetButtonStyle}" MinWidth="92" Margin="0,0,8,0" Click="TargetStandard_Click" />
+                            <Button x:Name="TargetLoudButton" Content="Fort" Style="{StaticResource TargetPresetButtonStyle}" MinWidth="72" Click="TargetLoud_Click" />
                         </StackPanel>
                         <DockPanel>
-                            <TextBlock Text="-30 dB" Width="54" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
-                            <TextBlock Text="-15 dB" DockPanel.Dock="Right" Width="54" TextAlignment="Right" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="15%" Width="54" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="100%" DockPanel.Dock="Right" Width="54" TextAlignment="Right" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center" />
                             <Slider x:Name="TargetSlider"
                                     Minimum="-30"
                                     Maximum="-15"
@@ -291,6 +315,7 @@
                             <DataGridTextColumn Header="Statut" Binding="{Binding Status}" Width="*" IsReadOnly="True" />
                             <DataGridTextColumn Header="Niveau" Binding="{Binding CurrentLevelPercent}" Width="0.8*" IsReadOnly="True" />
                             <DataGridTextColumn Header="Gain" Binding="{Binding AppliedGainPercent}" Width="0.8*" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Calibration" Binding="{Binding Calibration}" Width="1.1*" IsReadOnly="True" />
                             <DataGridTextColumn Header="Contrôle" Binding="{Binding ControlSurface}" Width="1.1*" IsReadOnly="True" />
                             <DataGridTextColumn Header="Contrôlable" Binding="{Binding IsControllable}" Width="0.9*" IsReadOnly="True" />
                             <DataGridTextColumn Header="Titre" Binding="{Binding Title}" Width="2*" IsReadOnly="True" />
@@ -299,23 +324,32 @@
                 </Grid>
             </Border>
 
-            <Border Grid.Row="5" Style="{StaticResource PanelStyle}" Padding="12">
+            <Border Grid.Row="5" Style="{StaticResource PanelStyle}" Padding="10,8">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Bridge, logs et debug" FontSize="13" FontWeight="Bold" />
-                        <TextBlock x:Name="LogStatusText" Text="Logs locaux prêts." Foreground="{DynamicResource MutedTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
-                        <TextBlock x:Name="BridgeStatusText" Text="Bridge local en attente de démarrage." Foreground="{DynamicResource AccentBrush}" TextWrapping="Wrap" Margin="0,3,0,0" />
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
-                        <Button Content="Marquer étape" Margin="0,0,8,0" Click="MarkStep_Click" />
-                        <Button Content="Copier logs" Margin="0,0,8,0" Click="CopyRecentLogs_Click" />
-                        <Button Content="Ouvrir logs" Margin="0,0,8,0" Click="OpenLogs_Click" />
-                        <Button Content="Simuler source navigateur" Click="SimulateBrowserSource_Click" />
-                    </StackPanel>
+
+                    <Grid Grid.Column="0" Margin="0,0,14,0" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Debug" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock x:Name="LogStatusText" Text="Logs locaux prêts." Foreground="{DynamicResource MutedTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="BridgeStatusText" Text="Bridge local en attente de démarrage." Foreground="{DynamicResource AccentBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,1,0,0" />
+                        </StackPanel>
+                    </Grid>
+
+                    <WrapPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Content="Nouveau test" Style="{StaticResource DebugButtonStyle}" ToolTip="Créer une session de test propre" Click="NewTestSession_Click" />
+                        <Button Content="Étape" Style="{StaticResource DebugButtonStyle}" ToolTip="Marquer une étape dans les logs" Click="MarkStep_Click" />
+                        <Button Content="Copier logs" Style="{StaticResource DebugButtonStyle}" ToolTip="Copier les logs de la session de test" Click="CopyRecentLogs_Click" />
+                        <Button Content="Ouvrir logs" Style="{StaticResource DebugButtonStyle}" ToolTip="Ouvrir le dossier des logs locaux" Click="OpenLogs_Click" />
+                        <Button Content="Simuler" Style="{StaticResource DebugButtonStyle}" ToolTip="Simuler une source navigateur pour tester le bridge" Click="SimulateBrowserSource_Click" />
+                    </WrapPanel>
                 </Grid>
             </Border>
         </Grid>

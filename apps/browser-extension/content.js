@@ -50,6 +50,10 @@
     predictedPeakDb: Analyser.MIN_DB,
     riskLevel: "safe",
     containedPeakCount: 0,
+    calibrationState: "measuring",
+    measuredRmsDb: null,
+    appliedGainDb: null,
+    calibrationReason: "",
     lastError: "",
     updatedAt: Date.now()
   };
@@ -80,18 +84,27 @@
     return "Safe";
   }
 
+  function getBrowserControlSurface() {
+    return state.enabled && state.calibrationState !== "skipped" ? "BrowserGain" : "ObserveOnly";
+  }
+
   function buildBrowserSourceStatus() {
+    const controlSurface = getBrowserControlSurface();
     return {
       sourceId: `media-html:${state.site || "unknown"}`,
       siteName: state.site,
       title: state.site ? `${state.site} media` : "",
       currentLevel: dbToScalar(state.outputRmsDb),
       appliedGain: gainDbToScalar(state.gainDb),
+      calibrationState: state.calibrationState,
+      measuredRmsDb: state.measuredRmsDb,
+      appliedGainDb: state.appliedGainDb,
+      calibrationReason: state.calibrationReason,
       targetRmsDb: state.targetRmsDb,
       targetProfile: settings.desktopTargetProfile || state.activeProfile,
       status: mapRiskToStatus(state.riskLevel),
-      controlSurface: state.enabled ? "BrowserGain" : "ObserveOnly",
-      isControllable: state.enabled,
+      controlSurface,
+      isControllable: controlSurface === "BrowserGain",
       sourceType: state.sourceType,
       lastSeen: new Date(state.updatedAt).toISOString()
     };
@@ -220,6 +233,31 @@
     settingsUpdateTimer = root.setTimeout(() => applyPendingSettingsUpdate({ immediate: false }), SETTINGS_UPDATE_DEBOUNCE_MS);
   }
 
+  function forwardCalibrationEvent(event) {
+    if (!root.chrome || !root.chrome.runtime || !root.chrome.runtime.sendMessage || !event) return;
+    const controlSurface = event.eventName === "browser.gain.skipped" ? "ObserveOnly" : "BrowserGain";
+    root.chrome.runtime.sendMessage({
+      type: "WLG_EXTENSION_LOG",
+      log: {
+        eventName: event.eventName,
+        message: `BrowserGain calibration ${event.reason || event.calibrationState || "updated"}`,
+        severity: event.eventName === "browser.gain.skipped" ? "warn" : "info",
+        sourceId: `media-html:${state.site || "unknown"}`,
+        siteName: state.site,
+        status: mapRiskToStatus(state.riskLevel),
+        controlSurface,
+        calibrationState: event.calibrationState,
+        measuredRmsDb: event.measuredRmsDb,
+        appliedGainDb: event.appliedGainDb,
+        calibrationReason: event.reason,
+        targetRmsDb: event.targetRmsDb,
+        targetProfile: event.targetProfile || settings.desktopTargetProfile || state.activeProfile
+      }
+    }, () => {
+      // Best-effort local logs only. The desktop may be closed.
+    });
+  }
+
   function handleNormalizerState(nextState) {
     updateState({
       gainDb: nextState.gainDb,
@@ -232,7 +270,11 @@
       predictedPeakDb: nextState.predictedPeakDb,
       riskLevel: nextState.riskLevel,
       containedPeakCount: nextState.containedPeakCount,
-      activeProfile: nextState.profileId
+      activeProfile: nextState.profileId,
+      calibrationState: nextState.calibrationState,
+      measuredRmsDb: nextState.measuredRmsDb,
+      appliedGainDb: nextState.appliedGainDb,
+      calibrationReason: nextState.calibrationReason
     });
   }
 
@@ -264,7 +306,8 @@
     processingMedia.add(media);
     try {
       normalizer = Normalizer.createMediaNormalizer(media, settings, {
-        onState: handleNormalizerState
+        onState: handleNormalizerState,
+        onCalibrationEvent: forwardCalibrationEvent
       });
       await normalizer.start();
       normalizers.set(media, normalizer);

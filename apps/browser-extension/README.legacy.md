@@ -85,7 +85,7 @@ Si tu ne connais pas GitHub, suis exactement ces étapes :
 
 1. Ouvre la page des releases :
 
-Archive historique : ancien repo extension avant consolidation. Pour la version actuelle, utiliser `StreamVolume-Guard-Hub` et suivre `docs/github-repo-setup.md`.
+Archive historique : ancien repo extension avant consolidation. Pour la version actuelle, utiliser `StreamVolume-Guard-Hub` et suivre le README racine.
 
 2. Clique sur la dernière release, par exemple :
 
@@ -119,8 +119,6 @@ Les zips de release contiennent aussi les fichiers utiles aux testeurs :
 - `docs/streamer-quickstart-60s.md` pour un test rapide avant live ;
 - `docs/bug-report-template.md` pour envoyer un retour propre ;
 - `docs/privacy-policy.md` pour comprendre exactement ce qui est stocké ou non ;
-- `docs/maintenance-checklist.md` pour connaître le contrat audio validé et les commandes de vérification ;
-- `docs/real-platform-test-plan.md` pour valider YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web ;
 - `docs/cross-browser-deployment.md` pour les détails multi-navigateurs.
 
 ## Installation Dans Chrome Ou Brave
@@ -288,13 +286,7 @@ docs/cross-browser-deployment.md
 
 ## Contrat De Stabilite
 
-La base audio validee est documentee ici :
-
-```text
-docs/maintenance-checklist.md
-```
-
-Ce fichier fige les niveaux de test, les criteres d'egalisation, les fichiers critiques et les commandes a lancer avant de dire que le pipeline audio est stable.
+La base audio validee est historique. Pour la version actuelle, utiliser le README racine, la checklist testeur publique et les tests automatises.
 
 ## Politique De Confidentialité
 
@@ -506,19 +498,11 @@ docs/tester-checklist.md
 
 Elle couvre l'installation, les tests audio, les tests OBS, les bugs à reporter, l'export du diagnostic JSON local et les logs console optionnels.
 
-Pour valider les plateformes réelles dans un ordre utile :
-
-```text
-docs/real-platform-test-plan.md
-```
+Pour valider les plateformes réelles dans un ordre utile, utiliser la checklist testeur publique et les retours de test reels.
 
 ## Roadmap D'implémentation
 
-Les idées de prochaines fonctions sont priorisées ici :
-
-```text
-docs/future-implementation-roadmap.md
-```
+Les idées de prochaines fonctions sont gerees dans les documents internes non publies.
 
 Le prochain gros chantier recommande dans le repo hybride est la validation reelle sur Spotify, Deezer, Twitch, Kick, TikTok et YouTube avec classification `origin` / `controlSurface`, puis le packaging testeur Windows.
 

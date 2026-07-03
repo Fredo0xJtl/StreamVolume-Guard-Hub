@@ -53,7 +53,11 @@ public static class BrowserBridgeMessageParser
             ControlSurface: controlSurface,
             LastSeenUtc: OptionalTimestamp(root, "lastSeen", DateTimeOffset.UtcNow),
             TargetRmsDb: OptionalTargetDecibels(root, "targetRmsDb"),
-            TargetProfile: OptionalString(root, "targetProfile", string.Empty));
+            TargetProfile: OptionalString(root, "targetProfile", string.Empty),
+            CalibrationState: OptionalCalibrationState(root, "calibrationState"),
+            MeasuredRmsDb: OptionalCalibrationDecibels(root, "measuredRmsDb"),
+            AppliedGainDb: OptionalGainDecibels(root, "appliedGainDb"),
+            CalibrationReason: OptionalString(root, "calibrationReason", string.Empty));
     }
 
     public static ExtensionLogEntry ParseExtensionLog(string json)
@@ -93,6 +97,10 @@ public static class BrowserBridgeMessageParser
             Status: ParseStatus(OptionalString(root, "status", AudioSessionStatus.Unknown.ToString())),
             ControlSurface: ParseOptionalControlSurface(OptionalString(root, "controlSurface", AudioControlSurface.Unknown.ToString())),
             CaptureSignalState: OptionalString(root, "captureSignalState", string.Empty),
+            CalibrationState: OptionalCalibrationState(root, "calibrationState"),
+            MeasuredRmsDb: OptionalCalibrationDecibels(root, "measuredRmsDb"),
+            AppliedGainDb: OptionalGainDecibels(root, "appliedGainDb"),
+            CalibrationReason: OptionalString(root, "calibrationReason", string.Empty),
             TargetRmsDb: OptionalTargetDecibels(root, "targetRmsDb"),
             TargetProfile: OptionalString(root, "targetProfile", string.Empty),
             LastSeenUtc: OptionalTimestamp(root, "lastSeen", DateTimeOffset.UtcNow),
@@ -206,6 +214,58 @@ public static class BrowserBridgeMessageParser
         if (value.Value < -60.0f) return -60.0f;
         if (value.Value > 0.0f) return 0.0f;
         return value.Value;
+    }
+
+    private static float? OptionalCalibrationDecibels(JsonElement root, string propertyName)
+    {
+        var value = OptionalFloatValue(root, propertyName);
+        if (!value.HasValue) return null;
+        if (value.Value < -120.0f) return -120.0f;
+        if (value.Value > 24.0f) return 24.0f;
+        return value.Value;
+    }
+
+    private static float? OptionalGainDecibels(JsonElement root, string propertyName)
+    {
+        var value = OptionalFloatValue(root, propertyName);
+        if (!value.HasValue) return null;
+        if (value.Value < -48.0f) return -48.0f;
+        if (value.Value > 48.0f) return 48.0f;
+        return value.Value;
+    }
+
+    private static float? OptionalFloatValue(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var property) || property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        float? value = null;
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetSingle(out var number))
+        {
+            value = number;
+        }
+        else
+        {
+            var text = OptionalString(root, propertyName, string.Empty);
+            if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+            {
+                value = parsed;
+            }
+        }
+
+        return !value.HasValue || float.IsNaN(value.Value) || float.IsInfinity(value.Value)
+            ? null
+            : value.Value;
+    }
+
+    private static string OptionalCalibrationState(JsonElement root, string propertyName)
+    {
+        var value = OptionalString(root, propertyName, string.Empty);
+        return value is "measuring" or "applied" or "locked" or "skipped" or "rearmed"
+            ? value
+            : string.Empty;
     }
 
     private static DateTimeOffset OptionalTimestamp(JsonElement root, string propertyName, DateTimeOffset fallback)

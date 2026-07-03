@@ -52,6 +52,15 @@
   "popupDiagnostics": {
     "message": "Diagnostics"
   },
+  "popupDesktopLink": {
+    "message": "Desktop app"
+  },
+  "popupDesktopConnected": {
+    "message": "Desktop connected"
+  },
+  "popupDesktopStandalone": {
+    "message": "Standalone mode"
+  },
   "popupProtectTab": {
     "message": "Protect this tab"
   },

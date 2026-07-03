@@ -14,6 +14,7 @@
     rmsValue: document.getElementById("rmsValue"),
     mediaValue: document.getElementById("mediaValue"),
     diagnosticsList: document.getElementById("diagnosticsList"),
+    desktopLinkStatus: document.getElementById("desktopLinkStatus"),
     protectButton: document.getElementById("protectButton"),
     autoDomainButton: document.getElementById("autoDomainButton"),
     panicButton: document.getElementById("panicButton"),
@@ -24,8 +25,10 @@
 
   let currentSettings = Settings.normalizeSettings();
   let currentStatus = null;
+  let currentDesktopLink = { connected: false, mode: "standalone", checkedAt: 0 };
   let refreshTimer = null;
   const STATUS_REFRESH_MS = 250;
+  const DESKTOP_LINK_REFRESH_MS = 2000;
 
   const profileLabelKeys = {
     soft: "profileSoft",
@@ -199,6 +202,15 @@
     elements.diagnosticsList.replaceChildren(fragment);
   }
 
+  function renderDesktopLink() {
+    const connected = Boolean(currentDesktopLink.connected);
+    elements.desktopLinkStatus.classList.toggle("is-connected", connected);
+    elements.desktopLinkStatus.classList.toggle("is-standalone", !connected);
+    elements.desktopLinkStatus.textContent = connected
+      ? i18n("popupDesktopConnected", "Desktop connected")
+      : i18n("popupDesktopStandalone", "Standalone mode");
+  }
+
   function render() {
     const status = currentStatus || {};
     const excluded = Boolean(status.excluded);
@@ -215,6 +227,7 @@
     elements.mediaValue.textContent = `${status.mediaProcessed || 0}/${status.mediaDetected || 0}`;
     renderRisk(status);
     renderDiagnostics(status);
+    renderDesktopLink();
 
     elements.statusBadge.classList.toggle("is-on", shouldStopProtection && !excluded);
     elements.statusBadge.classList.toggle("is-blocked", excluded);
@@ -235,9 +248,32 @@
       : i18n("popupPanic", "Panic");
   }
 
+  async function refreshDesktopLinkStatus(force) {
+    const now = Date.now();
+    if (!force && now - currentDesktopLink.checkedAt < DESKTOP_LINK_REFRESH_MS) {
+      return currentDesktopLink;
+    }
+
+    const BridgeClient = WLG.BridgeClient;
+    if (!BridgeClient || typeof BridgeClient.checkDesktopBridgeHealth !== "function") {
+      currentDesktopLink = { connected: false, mode: "standalone", checkedAt: now };
+      return currentDesktopLink;
+    }
+
+    const result = await BridgeClient.checkDesktopBridgeHealth();
+    currentDesktopLink = {
+      connected: Boolean(result && result.connected),
+      mode: result && result.mode ? result.mode : "standalone",
+      status: result && Number.isFinite(Number(result.status)) ? Number(result.status) : 0,
+      checkedAt: now
+    };
+    return currentDesktopLink;
+  }
+
   async function refresh() {
     currentSettings = await Settings.getSettings();
     currentStatus = await sendRuntimeMessage("WLG_GET_ACTIVE_STATUS");
+    await refreshDesktopLinkStatus(false);
     render();
   }
 
@@ -316,6 +352,9 @@
       captureRestartDeferred: Boolean(currentStatus && currentStatus.captureRestartDeferred),
       tabAudible: Boolean(currentStatus && currentStatus.tabAudible),
       tabActive: Boolean(currentStatus && currentStatus.tabActive),
+      desktopBridgeConnected: Boolean(currentDesktopLink.connected),
+      desktopBridgeMode: currentDesktopLink.mode || "standalone",
+      desktopBridgeStatus: finiteNumber(currentDesktopLink.status, 0),
       lastError: currentStatus && currentStatus.lastError ? String(currentStatus.lastError).slice(0, 300) : "",
       privacy: {
         localOnly: true,

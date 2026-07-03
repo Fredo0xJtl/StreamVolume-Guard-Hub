@@ -1,5 +1,5 @@
 name: Audio test report
-description: Report a real test pass with YouTube, TikTok, Spotify Web, Discord, VLC, OBS, or another source.
+description: Report a real test pass with YouTube, TikTok, Spotify Web, Discord, VLC, OBS, or another source. Project board: https://github.com/users/Fredo0xJtl/projects/1
 title: "[Test]: "
 labels: [test-report]
 body:

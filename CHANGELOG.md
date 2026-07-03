@@ -74,6 +74,7 @@ All notable changes to StreamVolume Guard Hub are tracked here.
 - Reworked the social sharing preview image for StreamVolume Guard Hub with a clearer hybrid mixer presentation.
 - Replaced the legacy social preview generator with a compatibility alias to the current Hub generator, so there is only one visual source of truth.
 - Compact desktop `Bridge, logs et debug` into a one-line debug toolbar with trimmed status text and shorter action labels.
+- Linked GitHub-facing docs, issue templates, and PR checklist directly to the active Project board.
 
 ### Fixed
 

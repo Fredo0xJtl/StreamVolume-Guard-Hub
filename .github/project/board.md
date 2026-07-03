@@ -1,5 +1,17 @@
 # Project Board
 
+Direct board:
+
+```text
+https://github.com/users/Fredo0xJtl/projects/1
+```
+
+Repository Projects page:
+
+```text
+https://github.com/Fredo0xJtl/StreamVolume-Guard-Hub/projects
+```
+
 ## Views
 
 Recommended GitHub Project views:

@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: StreamVolume Guard Hub project board
+    url: https://github.com/users/Fredo0xJtl/projects/1
+    about: Check the current roadmap, alpha tests, and known follow-up work before opening a duplicate issue.

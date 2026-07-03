@@ -8,6 +8,21 @@ with `README.md`, `CHANGELOG.md`, `docs/product-next-plan.md`,
 
 ## Recommended Project
 
+Direct board URL:
+
+```text
+https://github.com/users/Fredo0xJtl/projects/1
+```
+
+Repository Projects page:
+
+```text
+https://github.com/Fredo0xJtl/StreamVolume-Guard-Hub/projects
+```
+
+GitHub Projects v2 keeps the canonical URL under the `Fredo0xJtl` account even
+when the board is linked to `Fredo0xJtl/StreamVolume-Guard-Hub`.
+
 Name:
 
 ```text

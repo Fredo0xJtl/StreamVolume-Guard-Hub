@@ -14,6 +14,7 @@ Use this before pushing, opening a PR, or sharing a build.
 - [ ] `CHANGELOG.md` updated if behavior, UX, setup, or limitations changed.
 - [ ] Active docs do not point to stale prototype-folder commands.
 - [ ] `.github/project/` is updated if roadmap, labels, known limits, test status, release readiness, or project-board priorities changed.
+- [ ] GitHub-facing docs still point to the direct Project board: `https://github.com/users/Fredo0xJtl/projects/1`.
 - [ ] Bridge status is clear: testable on `127.0.0.1:47841`, simulated fallback, or unavailable with a clear error.
 - [ ] Bridge hardening is preserved: loopback bind, request size limits, Origin allowlist, optional token on `/browser-source`, `/extension-log`, and `/global-target`, open `/health`, and no token value in logs.
 - [ ] Unified logs remain privacy-safe: no full URL, raw audio, browser history, token, Discord message, or OBS scene is written.

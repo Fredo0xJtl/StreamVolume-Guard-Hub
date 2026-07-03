@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible hybrid audio bug.
+description: Report a reproducible hybrid audio bug. Project board: https://github.com/users/Fredo0xJtl/projects/1
 title: "[Bug]: "
 labels: [bug]
 body:

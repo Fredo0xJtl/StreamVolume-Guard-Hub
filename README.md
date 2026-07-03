@@ -47,11 +47,27 @@ Voir : `docs/hybrid-architecture.md`.
 - Cahier couche desktop : `docs/desktop-v1-cahier-des-charges.md`
 - Checklist testeur : `docs/tester-checklist.md`
 - Protocole commun : `packages/protocol/README.md`
-- GitHub Project : `.github/project/README.md`
+- GitHub Project direct : https://github.com/users/Fredo0xJtl/projects/1
+- GitHub Project docs : `.github/project/README.md`
 
 Etat actuel : le protocole, la simulation navigateur, le bridge local durci `127.0.0.1:47841`, l'envoi reel depuis l'extension, la lecture `GET /global-target`, le journal unifie local via `POST /extension-log`, les logs groupes par `runId` et `testSessionId`, le rapport lisible copiable depuis `Copier logs`, la validation stricte `isControllable`, la config locale Auto/exclusions/cible/token bridge optionnel, l'affichage de la controlabilite, le statut de liaison app-extension, le verrou de calibration automatique one-shot, la calibration navigateur `BrowserGain` prioritaire et le packaging testeur Windows reproductible sont testables. Si `BridgeToken` est defini, les endpoints de donnees `/browser-source`, `/extension-log` et `/global-target` exigent `X-StreamVolume-Guard-Token`, tandis que `/health` reste ouvert pour le diagnostic local et le mode autonome de l'extension. Le protocole transporte `currentLevel`, `appliedGain`, `targetRmsDb`, `targetProfile`, `controlSurface`, `isControllable`, `calibrationState`, `measuredRmsDb` et `appliedGainDb`. Quand une source navigateur est vraiment controlable, l'extension analyse environ 12 secondes, demande assez de signal utile hors silence, evite de booster avant mesure fiable, peut attenuer vite un debut dangereux, applique ensuite un gain une fois et verrouille la source. Le desktop evite alors les corrections automatiques concurrentes du volume Windows global, mais garde un fallback immediat pour les changements volontaires de cible ou les etats `measuring`, `ObserveOnly`, `Unknown`, silencieux ou inexploitable.
 
 ## GitHub Project
+
+Tableau direct :
+
+```text
+https://github.com/users/Fredo0xJtl/projects/1
+```
+
+Page Projects du repo :
+
+```text
+https://github.com/Fredo0xJtl/StreamVolume-Guard-Hub/projects
+```
+
+GitHub Projects v2 garde une URL canonique sous le compte `Fredo0xJtl`,
+mais ce tableau est lie au repo `Fredo0xJtl/StreamVolume-Guard-Hub`.
 
 Les fichiers de base pour l'onglet GitHub Projects sont dans :
 

@@ -28,6 +28,7 @@ dotnet build "apps/desktop/StreamVolumeGuard.Desktop.sln" -nr:false
 
 - [ ] `CHANGELOG.md` updated for user-facing behavior, tests, docs, packaging, or GitHub workflow changes.
 - [ ] README/docs updated if behavior, setup, or limitations changed.
+- [ ] Project board updated or checked when roadmap/test/release work changed: https://github.com/users/Fredo0xJtl/projects/1
 
 ## Notes
 

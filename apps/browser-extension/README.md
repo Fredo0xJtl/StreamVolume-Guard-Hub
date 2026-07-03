@@ -1,7 +1,5 @@
 # StreamVolume Guard Hub Browser Extension
 
-> Important : l'extension ne fait pas tout le travail toute seule. Elle agit surtout sur les sources audio du navigateur quand le site et le navigateur le permettent. Pour gerer correctement l'ensemble du son du PC, y compris jeux, Discord, VLC, Spotify desktop, sons systeme et mixeur Windows, utiliser le projet complet **StreamVolume Guard Hub** : [github.com/Fredo0xJtl/StreamVolume-Guard-Hub](https://github.com/Fredo0xJtl/StreamVolume-Guard-Hub).
-
 Cette extension est la couche navigateur de **StreamVolume Guard Hub** pour streamers : elle aide à réduire les pics audio des sites web, reste open source, sans tracker, sans collecte de données et n'envoie aucune donnée automatiquement.
 
 Elle ne remplace pas l'app desktop. Son rôle est d'identifier les médias web et, quand le navigateur le permet, d'appliquer un gain local dans l'onglet (`BrowserGain`). Les applications Windows, jeux, Discord, VLC, Spotify desktop et le mixeur système restent couverts par `apps/desktop`.
@@ -24,15 +22,6 @@ Quand le desktop est lancé, l'extension peut :
 - rester honnête en `ObserveOnly` ou `Unknown` si une source n'est pas contrôlable.
 
 Aucun audio brut, URL complète, historique de navigation, compte utilisateur ou événement de télémétrie n'est envoyé au bridge.
-
-Etat courant : l'extension remonte des niveaux, des statuts, `BrowserGain`/`ObserveOnly`, la cible desktop et les logs utiles. Quand une source navigateur est controlable, elle analyse environ 12 secondes de signal, ignore les silences, evite de booster avant une mesure fiable, peut attenuer vite un debut dangereux, applique un gain `BrowserGain` une fois, verrouille la source pour eviter le pompage, puis rearme sur silence durable, changement source/media ou changement de niveau durable. Si seule la cible desktop change apres verrouillage, l'extension recalcule le gain immediatement depuis la mesure fiable deja obtenue.
-
-## Modes D'Usage
-
-- Extension seule : detecte et protege les medias web quand le navigateur le permet. Elle affiche `Mode autonome` si le desktop n'est pas joignable et continue sans compte, cloud ou collecte.
-- Extension avec desktop : lit `GET /global-target`, envoie les sous-sources via `POST /browser-source`, envoie des logs sanitizes via `POST /extension-log`, et permet au desktop d'afficher `Extension connectee`.
-- Source controlable : `BrowserGain` analyse une fenetre robuste, applique un gain dans l'onglet/source, puis verrouille pour eviter les corrections continues. Les changements de cible desktop sont instantanes une fois la source verrouillee.
-- Source non controlable ou pas encore verrouillee : l'extension envoie `ObserveOnly`, `Unknown`, `skipped` ou un etat de calibration non stable ; le desktop peut alors utiliser le fallback Windows global si une seule page web joue ou si l'utilisateur change volontairement de cible.
 
 ## Installation Locale Pour Tester
 
@@ -88,8 +77,7 @@ Les logs extension envoyés au desktop restent volontairement limités : synchro
 ## Limites Actuelles
 
 - Les onglets ne sont pas toujours séparables par Windows ; l'extension apporte le détail navigateur quand elle peut.
-- `BrowserGain` est prioritaire quand Web Audio ou `tabCapture` donne un signal exploitable, que la source reste controlable et que la calibration est `locked`.
-- Le fallback `WindowsSessionVolume` reste necessaire quand la source navigateur est `measuring`, `ObserveOnly`, `Unknown`, silencieuse, `skipped`, `no-signal` ou inexploitable.
+- `BrowserGain` est possible quand Web Audio ou `tabCapture` donne un signal exploitable.
 - TikTok et certains lecteurs dynamiques peuvent devenir `ObserveOnly` si la capture ne fournit pas de signal utilisable.
 - Les builds Firefox, Firefox Android et Safari sont hérités de l'ancien projet extension ; ils ne sont pas la priorité de la V1 hybride Windows.
 - OBS reste une vérification visuelle manuelle dans la V1 hybride.
@@ -139,12 +127,16 @@ Sur la page de test, commencer par `Avant brut` pour entendre les écarts réels
 ## Documents Extension Encore Utiles
 
 - `docs/privacy-policy.md` : promesse locale et données non collectées.
+- `docs/real-platform-test-plan.md` : plan de validation plateformes web.
+- `docs/maintenance-checklist.md` : contrat technique du pipeline navigateur.
 - `docs/cross-browser-deployment.md` : notes multi-navigateurs héritées de l'extension.
-- `docs/streamer-quickstart-60s.md` : prise en main rapide.
-- `docs/tester-checklist.md` : checklist publique de test extension.
+- `docs/future-implementation-roadmap.md` : idées extension, non source de vérité hybride.
 
-La source de vérité produit publique pour la suite hybride est le README racine et `docs/hybrid-architecture.md`.
+La source de vérité produit pour la suite hybride est dans :
 
+```text
+D:\Codex\StreamVolume Guard Hybride\docs\product-next-plan.md
+```
 
 ## Packaging Extension
 

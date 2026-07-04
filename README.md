@@ -123,6 +123,58 @@ artifacts\tester\StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip
 
 Ce dossier et ce zip contiennent le desktop publie, l'extension navigateur a charger en mode developpeur, un launcher, un raccourci logs, un README court et une checklist courte. `artifacts/` reste un dossier genere ignore par Git.
 
+## Installer L'Extension Navigateur
+
+Dossier a selectionner depuis le repo source :
+
+```text
+D:\Codex\StreamVolume Guard Hybride\apps\browser-extension
+```
+
+Dossier a selectionner depuis le package testeur :
+
+```text
+browser-extension
+```
+
+### Chrome
+
+1. Ouvrir `chrome://extensions`.
+2. Activer `Mode developpeur`.
+3. Cliquer `Charger l'extension non empaquetee`.
+4. Selectionner le dossier `apps\browser-extension` depuis le repo, ou `browser-extension` depuis le package testeur.
+5. Ouvrir le popup StreamVolume Guard Hub et verifier `Mode autonome` ou `App connectee`.
+
+### Brave
+
+1. Ouvrir `brave://extensions`.
+2. Activer `Mode developpeur`.
+3. Cliquer `Charger l'extension non empaquetee`.
+4. Selectionner le dossier `apps\browser-extension` depuis le repo, ou `browser-extension` depuis le package testeur.
+5. Ouvrir le popup StreamVolume Guard Hub et verifier `Mode autonome` ou `App connectee`.
+
+### Microsoft Edge
+
+1. Ouvrir `edge://extensions`.
+2. Activer `Mode developpeur`.
+3. Cliquer `Charger l'extension non empaquetee`.
+4. Selectionner le dossier `apps\browser-extension` depuis le repo, ou `browser-extension` depuis le package testeur.
+5. Ouvrir le popup StreamVolume Guard Hub et verifier `Mode autonome` ou `App connectee`.
+
+### Firefox Desktop
+
+Firefox est un chemin de test temporaire pour cette alpha, pas le navigateur principal valide. Le manifest courant est MV3 et utilise des APIs comme `tabCapture`/`offscreen`, dont le comportement peut differer ou etre refuse.
+
+1. Ouvrir `about:debugging#/runtime/this-firefox`.
+2. Cliquer `Charger un module complementaire temporaire`.
+3. Selectionner `manifest.json` dans le dossier `apps\browser-extension` depuis le repo, ou `browser-extension\manifest.json` depuis le package testeur.
+4. Tester le popup si Firefox accepte le manifest.
+5. Si Firefox refuse le chargement ou si la capture audio ne fonctionne pas, utiliser Chrome, Brave ou Edge pour l'alpha.
+
+### Safari Et Firefox Android
+
+Safari et Firefox Android ne sont pas fournis dans le package alpha Hub. Safari demanderait une conversion et un packaging separes sur macOS/Xcode. Firefox Android demandera une validation dediee plus tard. Pour `v0.1.0-alpha.1`, utiliser Chrome, Brave ou Edge pour la validation principale.
+
 ## Limite V1 Navigateur
 
 En controle Windows global, un navigateur compte comme une seule source audio. Si une musique de fond et une video jouent dans le meme Firefox/Brave/Chrome sans `BrowserGain` exploitable, le slider Windows du navigateur bouge les deux ensemble. Pour garder la musique plus forte ou plus stable qu'une video web, utiliser si possible deux sources Windows separees, par exemple Spotify desktop ou VLC pour la musique et le navigateur pour la video. Une source exclue reste en controle manuel via son slider dans l'app ; les autres sources non exclues peuvent rester gerees par `Auto actif`.

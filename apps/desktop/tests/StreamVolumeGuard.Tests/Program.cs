@@ -1364,6 +1364,11 @@ static void TesterPackageHasReproducibleWindowsLauncher()
     AssertTrue(readme.Contains("ObserveOnly", StringComparison.Ordinal), "tester README should explain ObserveOnly limits");
     AssertTrue(readme.Contains("plusieurs sons dans le meme navigateur bougent ensemble", StringComparison.OrdinalIgnoreCase), "tester README should explain the V1 browser-global limit");
     AssertTrue(readme.Contains("%LOCALAPPDATA%\\StreamVolumeGuard\\logs", StringComparison.OrdinalIgnoreCase), "tester README should point to local logs");
+    AssertTrue(readme.Contains("chrome://extensions", StringComparison.OrdinalIgnoreCase), "tester README should explain Chrome extension loading");
+    AssertTrue(readme.Contains("brave://extensions", StringComparison.OrdinalIgnoreCase), "tester README should explain Brave extension loading");
+    AssertTrue(readme.Contains("edge://extensions", StringComparison.OrdinalIgnoreCase), "tester README should explain Edge extension loading");
+    AssertTrue(readme.Contains("about:debugging#/runtime/this-firefox", StringComparison.OrdinalIgnoreCase), "tester README should document Firefox temporary loading limits");
+    AssertTrue(readme.Contains("Safari et Firefox Android ne sont pas fournis", StringComparison.OrdinalIgnoreCase), "tester README should avoid promising Safari or Firefox Android support in the alpha package");
 
     AssertTrue(checklist.Contains("YouTube", StringComparison.OrdinalIgnoreCase), "tester checklist should include YouTube");
     AssertTrue(checklist.Contains("TikTok", StringComparison.OrdinalIgnoreCase), "tester checklist should include TikTok");

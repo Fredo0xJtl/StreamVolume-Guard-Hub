@@ -77,6 +77,7 @@ All notable changes to StreamVolume Guard Hub are tracked here.
 - Compact desktop `Bridge, logs et debug` into a one-line debug toolbar with trimmed status text and shorter action labels.
 - Linked GitHub-facing docs, issue templates, and PR checklist directly to the active Project board.
 - Changed tester packaging to create both the package folder and `StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip`.
+- Documented browser-specific extension loading steps for Chrome, Brave, Edge, temporary Firefox desktop testing, and unsupported Safari/Firefox Android alpha paths.
 
 ### Fixed
 

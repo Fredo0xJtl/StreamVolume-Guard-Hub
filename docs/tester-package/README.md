@@ -22,16 +22,49 @@ Le desktop publie dans ce package est une app Windows locale. Il ne demande pas 
 
 ## Charger L'Extension Navigateur
 
-Dans Chrome, Brave ou Edge :
-
-1. Ouvrir la page des extensions.
-2. Activer le mode developpeur.
-3. Cliquer sur `Charger l'extension non empaquetee`.
-4. Selectionner le dossier :
+Le dossier a selectionner dans ce package est :
 
 ```text
 browser-extension
 ```
+
+### Chrome
+
+1. Ouvrir `chrome://extensions`.
+2. Activer le mode developpeur.
+3. Cliquer sur `Charger l'extension non empaquetee`.
+4. Selectionner le dossier `browser-extension`.
+5. Ouvrir le popup StreamVolume Guard Hub et verifier `Mode autonome` ou `App connectee`.
+
+### Brave
+
+1. Ouvrir `brave://extensions`.
+2. Activer le mode developpeur.
+3. Cliquer sur `Charger l'extension non empaquetee`.
+4. Selectionner le dossier `browser-extension`.
+5. Ouvrir le popup StreamVolume Guard Hub et verifier `Mode autonome` ou `App connectee`.
+
+### Microsoft Edge
+
+1. Ouvrir `edge://extensions`.
+2. Activer le mode developpeur.
+3. Cliquer sur `Charger l'extension non empaquetee`.
+4. Selectionner le dossier `browser-extension`.
+5. Ouvrir le popup StreamVolume Guard Hub et verifier `Mode autonome` ou `App connectee`.
+
+### Firefox Desktop
+
+Firefox est un chemin de test temporaire pour cette alpha. Le manifest courant est MV3 et utilise des APIs qui peuvent differer ou etre refusees selon Firefox.
+
+1. Ouvrir `about:debugging#/runtime/this-firefox`.
+2. Cliquer `Charger un module complementaire temporaire`.
+3. Selectionner `browser-extension\manifest.json`.
+4. Tester le popup si Firefox accepte le manifest.
+5. Si Firefox refuse le chargement ou si la capture audio ne fonctionne pas, utiliser Chrome, Brave ou Edge pour l'alpha.
+
+### Safari Et Firefox Android
+
+Safari et Firefox Android ne sont pas fournis dans ce package alpha. Pour cette version, utiliser Chrome, Brave ou Edge pour la validation principale.
 
 L'extension peut detecter des sous-sources web et les envoyer au bridge local `127.0.0.1:47841` quand le desktop est ouvert.
 

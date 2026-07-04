@@ -281,7 +281,9 @@ Dossier extension a charger :
 D:\Codex\StreamVolume Guard Hybride\apps\browser-extension
 ```
 
-Dans Chrome, Brave ou Edge :
+Navigateurs recommandes pour cette alpha : Chrome, Brave ou Edge.
+
+### Chrome, Brave Ou Edge
 
 1. Ouvrir `chrome://extensions`, `brave://extensions` ou `edge://extensions`.
 2. Activer le mode developpeur.
@@ -296,6 +298,20 @@ Dans Chrome, Brave ou Edge :
 11. Mettre Play.
 12. Attendre 10 a 15 secondes.
 13. Copier les logs.
+
+### Firefox Desktop Temporaire
+
+Firefox n'est pas le chemin principal de validation alpha. Le manifest MV3 courant peut etre refuse ou se comporter differemment pour `tabCapture`/`offscreen`.
+
+1. Ouvrir `about:debugging#/runtime/this-firefox`.
+2. Cliquer `Charger un module complementaire temporaire`.
+3. Selectionner `D:\Codex\StreamVolume Guard Hybride\apps\browser-extension\manifest.json`.
+4. Si Firefox accepte le chargement, tester le popup puis une source seule.
+5. Si Firefox refuse ou si la capture audio ne fonctionne pas, noter la limite et repasser sur Chrome, Brave ou Edge.
+
+### Safari Et Firefox Android
+
+Safari et Firefox Android ne sont pas fournis dans le package alpha Hub. Ne pas les bloquer pour `v0.1.0-alpha.1`.
 
 Validation attendue :
 

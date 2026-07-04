@@ -1353,6 +1353,8 @@ static void TesterPackageHasReproducibleWindowsLauncher()
     AssertTrue(script.Contains("artifacts\\tester", StringComparison.OrdinalIgnoreCase), "tester package script should write under artifacts/tester");
     AssertTrue(script.Contains("apps\\browser-extension", StringComparison.OrdinalIgnoreCase), "tester package script should copy the loadable browser extension");
     AssertTrue(script.Contains("release-assets", StringComparison.OrdinalIgnoreCase), "tester package script should exclude generated release assets");
+    AssertTrue(script.Contains("Compress-Archive", StringComparison.OrdinalIgnoreCase), "tester package script should create a shareable zip");
+    AssertTrue(script.Contains("0.1.0-alpha.1", StringComparison.OrdinalIgnoreCase), "tester package script should default to the first alpha tester version");
     AssertFalse(script.Contains("git tag", StringComparison.OrdinalIgnoreCase), "tester package script must not create git tags");
     AssertFalse(script.Contains("gh release", StringComparison.OrdinalIgnoreCase), "tester package script must not create GitHub releases");
 

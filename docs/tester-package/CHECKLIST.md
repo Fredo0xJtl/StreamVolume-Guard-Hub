@@ -1,5 +1,7 @@
 # Checklist Courte Testeur
 
+Version alpha testeur : `v0.1.0-alpha.1`.
+
 ## Avant De Commencer
 
 - [ ] Je suis dans le package testeur, pas dans le repo source.

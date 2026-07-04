@@ -1,5 +1,6 @@
 param(
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$Version = "0.1.0-alpha.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +9,7 @@ Set-StrictMode -Version Latest
 $root = Split-Path -Parent $PSScriptRoot
 $artifactRoot = Join-Path $root "artifacts\tester"
 $packageRoot = Join-Path $artifactRoot "StreamVolumeGuardHub-Tester"
+$archivePath = Join-Path $artifactRoot "StreamVolumeGuardHub-Tester-v$Version.zip"
 $desktopProject = Join-Path $root "apps\desktop\src\StreamVolumeGuard.App\StreamVolumeGuard.App.csproj"
 $desktopOutput = Join-Path $packageRoot "desktop"
 $extensionSource = Join-Path $root "apps\browser-extension"
@@ -47,6 +49,10 @@ if (Test-Path -LiteralPath $packageRoot) {
     Remove-Item -LiteralPath $packageRoot -Recurse -Force
 }
 
+if (Test-Path -LiteralPath $archivePath) {
+    Remove-Item -LiteralPath $archivePath -Force
+}
+
 New-Item -ItemType Directory -Force -Path $desktopOutput, $extensionOutput | Out-Null
 
 Write-Host "Stopping stale .NET build servers..."
@@ -84,8 +90,12 @@ Copy-RequiredItem -Source (Join-Path $docsRoot "README.md") -Destination (Join-P
 Copy-RequiredItem -Source (Join-Path $docsRoot "CHECKLIST.md") -Destination (Join-Path $packageRoot "CHECKLIST.md")
 Copy-RequiredItem -Source (Join-Path $root "docs\tester-checklist.md") -Destination (Join-Path $packageRoot "CHECKLIST-COMPLETE.md")
 
+Write-Host "Creating tester zip..."
+Compress-Archive -LiteralPath $packageRoot -DestinationPath $archivePath -Force
+
 Write-Host ""
 Write-Host "Tester package ready:"
 Write-Host $packageRoot
+Write-Host $archivePath
 Write-Host ""
 Write-Host "Open README.md first, then double-click 'Lancer StreamVolume Guard Hub Desktop.cmd'."

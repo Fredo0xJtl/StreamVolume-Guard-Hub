@@ -49,7 +49,7 @@ Fait :
 Pas encore fait :
 
 - campagne de tests reels multi-sources ;
-- packaging testeur Windows final ;
+- validation manuelle du package testeur Windows depuis un dossier propre ;
 - lecture automatique des scenes ou meters OBS.
 
 ## Ordre De Suite
@@ -84,7 +84,7 @@ Tester dans cet ordre : YouTube, TikTok, Spotify Web, Discord, VLC, OBS visible,
 
 ### Etape G - Packaging Testeur Windows
 
-Preparer un lancement simple pour testeurs Windows, sans compte, sans telemetrie et avec logs locaux copiables.
+Fait en version alpha locale : `tools/package-tester.ps1` publie le desktop, copie l'extension, ajoute README/checklists/launcher/logs shortcut et genere `artifacts\tester\StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip`. Reste a valider manuellement ce package depuis un dossier propre.
 
 ## Decisions Actuelles
 

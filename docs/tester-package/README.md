@@ -2,6 +2,14 @@
 
 Ce dossier sert a tester StreamVolume Guard Hub sans ouvrir la solution Visual Studio.
 
+Version alpha testeur : `v0.1.0-alpha.1`.
+
+Notes detaillees dans le repo source :
+
+```text
+docs\release-notes\v0.1.0-alpha.1.md
+```
+
 ## Lancer L'App
 
 Double-cliquer sur :

@@ -47,7 +47,7 @@ isControllable: true / false
 | 5 | Normalisation stable | Moteur present/teste | Valider a l'oreille sur vraies sources, ajuster si besoin. |
 | 6 | Panic, exclusions, reglages | Fait/testable | Panic, logs, Auto, exclusions et cible globale persistent. Reste calibration OBS mieux guidee. |
 | 7 | Tests reels multi-sources | Prochaine priorite | YouTube, TikTok, Spotify Web, Discord, VLC, OBS, combos. |
-| 8 | Packaging testeur Windows | Pas fait | Dossier testeur clair sans confusion avec `.sln`. |
+| 8 | Packaging testeur Windows | Fait en alpha locale | Reste : valider le zip depuis un dossier propre, puis publier seulement sur demande explicite. |
 | 9 | Stabilisation V1 | Pas fait | Pass final apres tests reels et packaging. |
 
 ## Commandes Automatiques De Base
@@ -86,6 +86,7 @@ Extension : D:\Codex\StreamVolume Guard Hybride\apps\browser-extension
 Logs locaux : %LOCALAPPDATA%\StreamVolumeGuard\logs
 Config locale : %LOCALAPPDATA%\StreamVolumeGuard\config.json
 Package testeur attendu : D:\Codex\StreamVolume Guard Hybride\artifacts\tester
+Notes alpha : D:\Codex\StreamVolume Guard Hybride\docs\release-notes\v0.1.0-alpha.1.md
 ```
 
 ## Maintenance Obligatoire Apres Chaque Implementation
@@ -344,7 +345,7 @@ Validation : `docs/tester-checklist.md` renseignee/ajustee + eventuels bugs ou t
 
 ## Paquet 8 - Packaging Testeur Windows
 
-Statut : pas fait.
+Statut : fait en alpha locale, a valider depuis un dossier propre.
 
 ```text
 Prepare un packaging testeur Windows propre.
@@ -353,6 +354,7 @@ Objectif : un testeur non technique ne doit pas cliquer sur le `.sln`.
 
 A fournir :
 - dossier `artifacts/tester` ou equivalent ;
+- zip `StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip` ;
 - launcher clair ;
 - README testeur ;
 - checklist courte ;
@@ -361,7 +363,7 @@ A fournir :
 - aucune release GitHub/tag sans demande explicite.
 ```
 
-Validation : build + lancement depuis package + pas de dossiers generes inutiles dans le package final.
+Validation : build + lancement depuis package + zip present + pas de dossiers generes inutiles dans le package final.
 
 ## Paquet 9 - Stabilisation V1
 

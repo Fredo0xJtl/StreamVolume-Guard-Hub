@@ -46,6 +46,7 @@ Voir : `docs/hybrid-architecture.md`.
 - Vision hybride : `docs/hybrid-architecture.md`
 - Cahier couche desktop : `docs/desktop-v1-cahier-des-charges.md`
 - Checklist testeur : `docs/tester-checklist.md`
+- Notes alpha testeur : `docs/release-notes/v0.1.0-alpha.1.md`
 - Protocole commun : `packages/protocol/README.md`
 - GitHub Project direct : https://github.com/users/Fredo0xJtl/projects/1
 - GitHub Project docs : `.github/project/README.md`
@@ -114,7 +115,13 @@ Le package est genere dans :
 artifacts\tester\StreamVolumeGuardHub-Tester
 ```
 
-Ce dossier contient le desktop publie, l'extension navigateur a charger en mode developpeur, un launcher, un raccourci logs, un README court et une checklist courte. `artifacts/` reste un dossier genere ignore par Git.
+Une archive locale est aussi generee :
+
+```text
+artifacts\tester\StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip
+```
+
+Ce dossier et ce zip contiennent le desktop publie, l'extension navigateur a charger en mode developpeur, un launcher, un raccourci logs, un README court et une checklist courte. `artifacts/` reste un dossier genere ignore par Git.
 
 ## Limite V1 Navigateur
 

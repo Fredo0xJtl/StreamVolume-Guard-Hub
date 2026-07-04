@@ -14,6 +14,7 @@ Required:
 
 - [ ] `CHANGELOG.md` describes what changed.
 - [ ] `README.md` explains current behavior and limits.
+- [ ] `docs/release-notes/v0.1.0-alpha.1.md` contains honest pre-release notes.
 - [ ] `docs/tester-checklist.md` matches the package and app UI.
 - [ ] `.github/project/backlog.csv` reflects the current known blockers.
 - [ ] Protocol tests pass.
@@ -21,7 +22,7 @@ Required:
 - [ ] Browser extension syntax checks pass.
 - [ ] Desktop tests pass.
 - [ ] Desktop build passes.
-- [ ] `tools/package-tester.ps1` regenerates the tester package.
+- [ ] `tools/package-tester.ps1` regenerates the tester package folder and zip.
 - [ ] The tester package launches without opening the `.sln`.
 - [ ] Real logs show whether each browser source is `BrowserGain`, `ObserveOnly`, or `Unknown`.
 - [ ] Release notes say clearly that YouTube/TikTok can fall back to global browser volume when direct BrowserGain is unavailable.

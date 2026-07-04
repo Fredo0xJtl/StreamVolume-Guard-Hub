@@ -60,6 +60,9 @@ Config locale :
 
 Package testeur genere :
 D:\Codex\StreamVolume Guard Hybride\artifacts\tester
+
+Notes alpha testeur :
+D:\Codex\StreamVolume Guard Hybride\docs\release-notes\v0.1.0-alpha.1.md
 ```
 
 Si un chemin n'existe pas, le noter dans le rapport de test au lieu d'improviser.
@@ -156,9 +159,16 @@ Package attendu :
 D:\Codex\StreamVolume Guard Hybride\artifacts\tester\StreamVolumeGuardHub-Tester
 ```
 
+Zip attendu :
+
+```text
+D:\Codex\StreamVolume Guard Hybride\artifacts\tester\StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip
+```
+
 Checklist :
 
 - [ ] Le dossier package existe.
+- [ ] Le zip package existe.
 - [ ] Le package contient `Lancer StreamVolume Guard Hub Desktop.cmd`.
 - [ ] Le package contient `browser-extension\manifest.json`.
 - [ ] Le package contient `README.md`, `CHECKLIST.md` et `CHECKLIST-COMPLETE.md`.

@@ -10,6 +10,7 @@ Use this before pushing, opening a PR, or sharing a build.
 - [ ] Browser extension syntax checks pass for bridge, background, and content scripts.
 - [ ] Desktop tests pass.
 - [ ] Full desktop solution build passes.
+- [ ] `tools/package-tester.ps1` creates both the tester folder and alpha zip under `artifacts/tester/`.
 - [ ] README or docs updated if behavior changed.
 - [ ] `CHANGELOG.md` updated if behavior, UX, setup, or limitations changed.
 - [ ] Active docs do not point to stale prototype-folder commands.

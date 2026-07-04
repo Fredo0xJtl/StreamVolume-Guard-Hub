@@ -38,6 +38,7 @@ All notable changes to StreamVolume Guard Hub are tracked here.
 - Added browser calibration logs: `browser.calibration.started`, `browser.calibration.measured`, `browser.gain.applied`, `browser.gain.locked`, `browser.gain.skipped`, and `browser.gain.rearmed`.
 - Added desktop UI display for browser-source calibration state.
 - Added `.github/project/` files for the GitHub Projects tab: board setup, importable backlog, labels, and release checklist.
+- Added `docs/release-notes/v0.1.0-alpha.1.md` as honest alpha tester pre-release notes.
 
 ### Changed
 
@@ -75,6 +76,7 @@ All notable changes to StreamVolume Guard Hub are tracked here.
 - Replaced the legacy social preview generator with a compatibility alias to the current Hub generator, so there is only one visual source of truth.
 - Compact desktop `Bridge, logs et debug` into a one-line debug toolbar with trimmed status text and shorter action labels.
 - Linked GitHub-facing docs, issue templates, and PR checklist directly to the active Project board.
+- Changed tester packaging to create both the package folder and `StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip`.
 
 ### Fixed
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extensionName__",
-  "version": "0.1.4",
+  "version": "0.1.44",
   "description": "__MSG_extensionDescription__",
   "homepage_url": "https://github.com/Fredo0xJtl/StreamVolume-Guard-Hub",
   "default_locale": "en",

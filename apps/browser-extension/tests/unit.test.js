@@ -64,6 +64,7 @@ function loadCore() {
     "audio/analyser.js",
     "audio/limiter.js",
     "audio/stream-status.js",
+    "audio/source-state.js",
     "audio/browser-gain-calibration.js",
     "audio/normalizer.js"
   ].forEach((file) => loadScript(context, file));
@@ -77,6 +78,12 @@ function loadCalibrationCore() {
     "audio/browser-gain-calibration.js"
   ].forEach((file) => loadScript(context, file));
   return context.StreamVolumeGuard;
+}
+
+function loadSourceStateCore() {
+  const context = createContext();
+  loadScript(context, "audio/source-state.js");
+  return context.StreamVolumeGuard.SourceState;
 }
 
 function readJson(relativePath) {
@@ -126,6 +133,129 @@ test("default settings are streamer-first and enabled", () => {
   assert.equal(WLG.Settings.DEFAULT_SETTINGS.maxBoostDb, 48);
   assert.equal(WLG.Settings.DEFAULT_SETTINGS.maxReductionDb, -24);
 });
+
+  test("browser source state machine classifies direct and fallback control paths", () => {
+    const SourceState = loadSourceStateCore();
+
+  const silentMedia = SourceState.classifyBrowserStatus({
+    enabled: true,
+    sourceType: "media-html",
+    mediaDetected: 0,
+    mediaProcessed: 0,
+    rmsDb: -120,
+    outputRmsDb: -120,
+    captureFallbackReason: "no-media-element-detected",
+    tabAudible: true,
+    canCaptureTab: true
+  });
+  assert.equal(silentMedia.browserState, "media-html-no-signal");
+  assert.equal(silentMedia.controlSurface, "ObserveOnly");
+  assert.equal(silentMedia.isControllable, false);
+  assert.equal(silentMedia.reason, "no-media-element-detected");
+  assert.match(silentMedia.recommendedAction, /tabCapture/i);
+
+    const mediaAfterCaptureNoSignal = SourceState.classifyBrowserStatus({
+      enabled: true,
+      sourceType: "media-html",
+      mediaDetected: 1,
+    mediaProcessed: 0,
+    reason: "media-html-starting",
+    captureFallbackReason: "tab-capture-no-signal",
+    captureSignalState: "no-signal",
+    captureRestartCount: 1,
+    rmsDb: -120,
+    outputRmsDb: -120,
+    tabAudible: true,
+    canCaptureTab: true
+  }, { desktopBridgeConnected: false });
+  assert.equal(mediaAfterCaptureNoSignal.browserState, "tab-capture-no-signal");
+  assert.equal(mediaAfterCaptureNoSignal.controlSurface, "ObserveOnly");
+  assert.equal(mediaAfterCaptureNoSignal.isControllable, false);
+  assert.equal(mediaAfterCaptureNoSignal.reason, "tab-capture-no-signal");
+    assert.doesNotMatch(mediaAfterCaptureNoSignal.recommendedAction, /Tenter tabCapture/i);
+    assert.doesNotMatch(mediaAfterCaptureNoSignal.recommendedAction, /Windows/i);
+
+    const safetyAttenuationMedia = SourceState.classifyBrowserStatus({
+      enabled: true,
+      sourceType: "media-html",
+      mediaDetected: 1,
+      mediaProcessed: 1,
+      reason: "safety-attenuation",
+      calibrationReason: "safety-attenuation",
+      riskLevel: "risky",
+      rmsDb: -24,
+      outputRmsDb: -31,
+      canCaptureTab: true,
+      tabAudible: true
+    });
+    assert.equal(safetyAttenuationMedia.browserState, "media-html-signal");
+    assert.equal(safetyAttenuationMedia.controlSurface, "BrowserGain");
+    assert.equal(safetyAttenuationMedia.status, "Risky");
+    assert.equal(safetyAttenuationMedia.isControllable, true);
+    assert.equal(safetyAttenuationMedia.reason, "safety-attenuation");
+
+    const capturedSignal = SourceState.classifyBrowserStatus({
+      enabled: true,
+      sourceType: "tab-capture",
+      captureSignalState: "signal",
+    rmsDb: -18,
+    outputRmsDb: -21,
+    calibrationState: "",
+    tabAudible: true
+  });
+  assert.equal(capturedSignal.browserState, "tab-capture-signal");
+  assert.equal(capturedSignal.controlSurface, "BrowserGain");
+  assert.equal(capturedSignal.status, "Safe");
+  assert.equal(capturedSignal.isControllable, true);
+
+  const standaloneNoSignal = SourceState.classifyBrowserStatus({
+    enabled: true,
+    sourceType: "tab-capture",
+    captureSignalState: "no-signal",
+    captureFallbackReason: "tab-capture-no-signal",
+    rmsDb: -120,
+    outputRmsDb: -120,
+    tabAudible: true
+  }, { desktopBridgeConnected: false });
+  assert.equal(standaloneNoSignal.browserState, "tab-capture-no-signal");
+  assert.equal(standaloneNoSignal.controlSurface, "ObserveOnly");
+  assert.equal(standaloneNoSignal.isControllable, false);
+  assert.equal(standaloneNoSignal.reason, "tab-capture-no-signal");
+  assert.doesNotMatch(standaloneNoSignal.recommendedAction, /Windows/i);
+
+    const desktopNoSignal = SourceState.classifyBrowserStatus({
+      enabled: true,
+      sourceType: "tab-capture",
+      captureSignalState: "no-signal",
+      captureFallbackReason: "tab-capture-no-signal",
+    rmsDb: -120,
+    outputRmsDb: -120,
+    tabAudible: true
+  }, { desktopBridgeConnected: true });
+  assert.equal(desktopNoSignal.browserState, "desktop-fallback-available");
+    assert.equal(desktopNoSignal.controlSurface, "ObserveOnly");
+    assert.equal(desktopNoSignal.isControllable, false);
+    assert.match(desktopNoSignal.recommendedAction, /Windows/i);
+
+    const liveTrackNoSignalTabCapture = SourceState.classifyBrowserStatus({
+      enabled: true,
+      sourceType: "tab-capture",
+      mediaDetected: 1,
+      mediaProcessed: 1,
+      audioTrackCount: 1,
+      captureTrackState: "live",
+      captureSignalState: "no-signal",
+      captureFallbackReason: "tab-capture-no-signal",
+      rmsDb: -120,
+      outputRmsDb: -120,
+      tabAudible: true
+    }, { desktopBridgeConnected: true });
+    assert.equal(liveTrackNoSignalTabCapture.browserState, "tab-capture-no-signal");
+    assert.equal(liveTrackNoSignalTabCapture.controlSurface, "ObserveOnly");
+    assert.equal(liveTrackNoSignalTabCapture.isControllable, false);
+    assert.equal(liveTrackNoSignalTabCapture.reason, "tab-capture-no-signal");
+    assert.doesNotMatch(liveTrackNoSignalTabCapture.recommendedAction, /Windows/i);
+    });
 
 test("legacy settings migrate max boost so the test page remains recoverable", () => {
   const WLG = loadCore();
@@ -448,6 +578,20 @@ test("browser gain calibration waits for a robust window and uses the global ton
     });
   });
 
+  assert.equal(result.calibrationState, "measuring", "default calibration should not lock before the 18-second robust window completes");
+
+  [13000, 14000, 15000, 16000, 17000, 18000].forEach((nowMs) => {
+    result = calibration.update({
+      rmsDb: -19,
+      targetRmsDb: -21,
+      maxBoostDb: 48,
+      maxReductionDb: -24,
+      nowMs,
+      sourceKey: "media-html:youtube.com",
+      targetSignature: "Fort|-21"
+    });
+  });
+
   assert.equal(result.calibrationState, "locked");
   assert.equal(result.measuredRmsDb, -19, "robust measurement should follow the dominant body, not the quiet intro average");
   assert.equal(result.gainDb, -2);
@@ -456,9 +600,12 @@ test("browser gain calibration waits for a robust window and uses the global ton
 
 test("browser gain calibration skips when useful signal is too short", () => {
   const WLG = loadCalibrationCore();
-  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration();
+  const calibration = WLG.BrowserGainCalibration.createBrowserGainCalibration({
+    measurementWindowMs: 8000,
+    minUsableSignalMs: 7000
+  });
 
-  [0, 1000, 2000, 3000].forEach((nowMs) => {
+  [0, 1000, 2000, 3000, 4000, 5000, 6000].forEach((nowMs) => {
     calibration.update({
       rmsDb: -24,
       targetRmsDb: -21,
@@ -475,7 +622,7 @@ test("browser gain calibration skips when useful signal is too short", () => {
     targetRmsDb: -21,
     maxBoostDb: 48,
     maxReductionDb: -24,
-    nowMs: 4000,
+    nowMs: 7000,
     sourceKey: "media-html:tiktok.com",
     targetSignature: "Fort|-21"
   });
@@ -485,7 +632,7 @@ test("browser gain calibration skips when useful signal is too short", () => {
     targetRmsDb: -21,
     maxBoostDb: 48,
     maxReductionDb: -24,
-    nowMs: 12000,
+    nowMs: 18000,
     sourceKey: "media-html:tiktok.com",
     targetSignature: "Fort|-21"
   });
@@ -689,14 +836,17 @@ test("platform profiles recommend streamer-first defaults", () => {
   );
 });
 
-test("platform routing prefers tab capture only for dynamic players", () => {
+test("platform routing starts with media html and upgrades only after silent evidence", () => {
   const WLG = loadCore();
 
-  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("tiktok.com"), "tab-capture");
-  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("www.tiktok.com"), "tab-capture");
+  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("tiktok.com"), "media-html");
+  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("www.tiktok.com"), "media-html");
   assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("youtube.com"), "media-html");
   assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("youtu.be"), "media-html");
+  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("open.spotify.com"), "media-html");
+  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("deezer.com"), "media-html");
   assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("twitch.tv"), "media-html");
+  assert.equal(WLG.Settings.getPreferredSourceTypeForDomain("example.com"), "media-html");
 });
 
 test("local test domains keep the stream equalization contract", () => {
@@ -822,6 +972,8 @@ test("content script guards concurrent media processing and resets detached mark
 
   assert.match(contentSource, /const processingMedia = new Set\(\);/);
   assert.match(contentSource, /if \(processingMedia\.has\(media\)\) return;/);
+  assert.match(contentSource, /if \(media\.dataset\[PROCESSED_ATTR\] === "true" && !normalizers\.has\(media\)\)/);
+  assert.match(contentSource, /delete media\.dataset\[PROCESSED_ATTR\];/);
   assert.match(contentSource, /processingMedia\.add\(media\);/);
   assert.match(contentSource, /finally\s*{[\s\S]*processingMedia\.delete\(media\);[\s\S]*}/);
   assert.match(contentSource, /delete media\.dataset\[PROCESSED_ATTR\];/);
@@ -909,15 +1061,27 @@ test("audible no-signal tab capture falls back to media HTML after one restart",
   assert.match(backgroundSource, /shouldFallbackSilentCaptureToMedia\(updatedStatus\)/);
 });
 
-test("audible silent media HTML upgrades generically to tab capture", () => {
+test("audible silent media HTML can upgrade generically to tab capture without site patches", () => {
   const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
   const settingsSource = fs.readFileSync(path.join(root, "storage", "settings.js"), "utf8");
 
   assert.match(backgroundSource, /SILENT_MEDIA_UPGRADE_MIN_REPORTS/);
   assert.match(backgroundSource, /silentMediaUpgradeCandidates/);
+  assert.match(backgroundSource, /async function hasDesktopBridgeForSilentMediaUpgrade\(\)/);
+  assert.match(backgroundSource, /const bridgeConnected = await hasDesktopBridgeForSilentMediaUpgrade\(\)/);
+  assert.match(backgroundSource, /function allowsStandaloneSilentMediaUpgrade\(status\)/);
+  assert.match(backgroundSource, /if \(!bridgeConnected && !allowsStandaloneSilentMediaUpgrade\(status\)\) \{/);
   assert.match(backgroundSource, /function shouldUpgradeSilentMediaToTabCapture\(tab, status\)/);
   assert.match(backgroundSource, /status\.sourceType !== "media-html"/);
   assert.match(backgroundSource, /tab\.audible === true/);
+  assert.match(backgroundSource, /function getMediaHtmlFallbackReasonForUpgrade\(source\)/);
+  assert.match(backgroundSource, /mediaHtmlFallbackReasonsForUpgrade\.has\(fallbackReason\)/);
+  assert.match(backgroundSource, /if \(getMediaHtmlFallbackReasonForUpgrade\(source\)\) return true/);
+  assert.match(backgroundSource, /source\.controlSurface !== "BrowserGain" && !canUpgradeFallbackReason/);
+  assert.match(backgroundSource, /let shouldDisableMediaAfterCaptureStarts = false/);
+  assert.match(backgroundSource, /shouldDisableMediaAfterCaptureStarts = true/);
+  assert.match(backgroundSource, /if \(shouldDisableMediaAfterCaptureStarts\) \{[\s\S]*type: "WLG_SET_ENABLED",[\s\S]*enabled: false[\s\S]*\}/);
+  assert.doesNotMatch(backgroundSource, /await sendMessage\(tab\.id,\s*\{ type: "WLG_SET_ENABLED", enabled: false \}\);[\s\S]*const savedSettings = await getSettingsWithGlobalTarget\(\);/);
   assert.match(backgroundSource, /recordSilentMediaUpgradeCandidate\(tab, status\)/);
   assert.match(backgroundSource, /startTabCaptureForTab\(tab, \{ replaceMedia: true, reason: "media-html-silent" \}\)/);
   assert.doesNotMatch(backgroundSource, /spotify/i);
@@ -950,7 +1114,7 @@ test("background uses offscreen status responses for capture updates", () => {
   assert.match(backgroundSource, /const captureResponse = await sendRuntimeMessage\(\{ target: "offscreen", type: "WLG_SET_CAPTURE_PANIC"/);
   assert.match(backgroundSource, /updatedCaptureStatus = captureResponse && captureResponse\.status \? captureResponse\.status : null;/);
   assert.match(backgroundSource, /const captureResponse = await sendRuntimeMessage\(\{ target: "offscreen", type: "WLG_UPDATE_CAPTURE_SETTINGS"/);
-  assert.match(backgroundSource, /return mergeStatus\(tab, updatedCaptureStatus \|\| contentResponse\);/);
+  assert.match(backgroundSource, /return mergeStatus\(tab, updatedCaptureStatus \|\| contentResponse/);
 });
 
 test("options distinguishes save failure from refresh failure", () => {
@@ -1528,7 +1692,11 @@ test("popup refreshes status frequently while open for responsive stream state",
   assert.match(source, /let refreshTimer = null;/);
   assert.match(source, /if \(!root\.chrome \|\| !chrome\.runtime \|\| !chrome\.runtime\.sendMessage\)/);
   assert.match(source, /refreshTimer = root\.setInterval\(refresh, STATUS_REFRESH_MS\);/);
-  assert.match(source, /root\.addEventListener\("unload", \(\) => root\.clearInterval\(refreshTimer\)\);/);
+  assert.match(source, /function disposePopup\(\) {/);
+  assert.match(source, /root\.addEventListener\("pagehide", disposePopup\);/);
+  assert.match(source, /root\.addEventListener\("visibilitychange", \(\) => \{/);
+  assert.match(source, /document\.visibilityState === "hidden"/);
+  assert.match(source, /disposePopup\(\);/);
 });
 
 test("content refresh reconfigures existing media pipelines", () => {
@@ -1541,6 +1709,12 @@ test("content refresh reconfigures existing media pipelines", () => {
   assert.match(contentSource, /Settings\.getSettingsForDomain\(sourceSettings, state\.site\)/);
   assert.match(contentSource, /targetRmsDb: settings\.targetRmsDb/);
   assert.match(contentSource, /targetRmsDb: nextState\.targetRmsDb/);
+  assert.match(contentSource, /function getEnabledAfterSettingsRefresh\(isExcluded, options\)/);
+  assert.match(contentSource, /if \(Object\.prototype\.hasOwnProperty\.call\(options \|\| \{\}, "requestedEnabled"\)\)/);
+  assert.match(contentSource, /if \(isExcluded\) return false;/);
+  assert.match(contentSource, /return state\.enabled;/);
+  assert.match(contentSource, /enabled: getEnabledAfterSettingsRefresh\(isExcluded, options\)/);
+  assert.doesNotMatch(contentSource, /Boolean\(settings\.enabled\) && !isExcluded && state\.enabled/);
   assert.match(normalizerSource, /function updateSettings\(nextSettings, options\)/);
   assert.match(normalizerSource, /connectGraph\(\);/);
 });
@@ -1579,6 +1753,81 @@ test("content refreshes when saved settings change in chrome storage", () => {
   assert.match(contentSource, /rescan\(\{ immediate: true \}\)/);
 });
 
+test("background falls back to the last focused browser tab for popup diagnostics", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /async function queryActiveTab\(queryInfo\)/);
+  assert.match(backgroundSource, /chrome\.tabs\.query\(queryInfo/);
+  assert.match(backgroundSource, /queryActiveTab\(\{ active: true, currentWindow: true \}\)/);
+  assert.match(backgroundSource, /queryActiveTab\(\{ active: true, lastFocusedWindow: true \}\)/);
+  assert.match(backgroundSource, /getAllTabs\(\)/);
+  assert.match(backgroundSource, /canInjectUrl\(tab\.url\)/);
+});
+
+test("background diagnostics can select an observed media tab when options page is active", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /async function getBestObservedTabStatus\(globalEnabled, excludedTabId\)/);
+  assert.match(backgroundSource, /sendMessage\(tab\.id, \{ type: "WLG_GET_STATUS" \}\)/);
+  assert.match(backgroundSource, /function scoreObservedStatus\(tab, status\)/);
+  assert.match(backgroundSource, /const observedStatus = await getBestObservedTabStatus\(globalEnabled, tab && tab\.id\)/);
+  assert.match(backgroundSource, /if \(observedStatus\) return observedStatus/);
+});
+
+test("background can recover a tab site from the content script when tab url is unavailable", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /async function getTabSite\(tab\)/);
+  assert.match(backgroundSource, /await executeScripts\(tab\.id\)/);
+  assert.match(backgroundSource, /sendMessageWithRetry\(tab\.id,\s*\{\s*type: "WLG_GET_STATUS"\s*\}/);
+  assert.match(backgroundSource, /const site = await getTabSite\(tab\)/);
+  assert.match(backgroundSource, /Settings\.getSettingsForDomain\(await getSettingsWithGlobalTarget\(\), site\)/);
+});
+
+test("background active status does not return an empty tab-id status before recovering site", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.doesNotMatch(backgroundSource, /if \(tabId \|\| hasUsefulObservedStatus\(activeStatus\)\) return activeStatus/);
+  assert.match(backgroundSource, /if \(hasUsefulObservedStatus\(activeStatus\)\) return activeStatus/);
+  assert.match(backgroundSource, /const site = await getTabSite\(tab\)/);
+  assert.match(backgroundSource, /activeStatus = mergeStatus\(tabWithSite, normalizedRecoveredResponse, globalEnabled\)/);
+});
+
+test("background explains active-tab site recovery failures in popup diagnostics", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /async function getTabSiteDetails\(tab\)/);
+  assert.match(backgroundSource, /return \{ site: "", reason: "content-site-recovery-failed", error: error && error\.message/);
+  assert.match(backgroundSource, /const siteDetails = await getTabSiteDetails\(tab\)/);
+  assert.match(backgroundSource, /statusRoute: "active-tab-empty"/);
+  assert.match(backgroundSource, /diagnosticReason: siteDetails\.reason/);
+  assert.match(backgroundSource, /const diagnosticError = siteDetails\.error \|\| \(activeStatus && activeStatus\.error\) \|\| \(activeStatus && activeStatus\.lastError\) \|\| ""/);
+  assert.match(backgroundSource, /error: diagnosticError/);
+  assert.match(backgroundSource, /lastError: siteDetails\.error \|\| \(activeStatus && activeStatus\.lastError\) \|\| \(activeStatus && activeStatus\.error\) \|\| ""/);
+});
+
+test("background runtime listener keeps sendResponse alive with a literal true", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.doesNotMatch(backgroundSource, /chrome\.runtime\.onMessage\.addListener\(async/);
+  assert.match(backgroundSource, /function handleCaptureStatusMessage\(message\)/);
+  assert.match(backgroundSource, /handleCaptureStatusMessage\(message\)\s*\.then\(sendResponse\)\s*\.catch\(\(error\) => sendResponse\(\{ ok: false, error: error\.message \}\)\);[\s\S]*return true;/);
+});
+
+test("popup passes its active tab id to background status requests", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(popupSource, /let activeTabContext = null/);
+  assert.match(popupSource, /function queryPopupActiveTab\(queryInfo\)/);
+  assert.match(popupSource, /chrome\.tabs\.query\(queryInfo/);
+  assert.match(popupSource, /function activeTabPayload\(\)/);
+  assert.match(popupSource, /currentStatus = await sendRuntimeMessage\("WLG_GET_ACTIVE_STATUS", activeTabPayload\(\)\)/);
+  assert.match(backgroundSource, /async function getStatusForActiveTab\(tabId\)/);
+  assert.match(backgroundSource, /const tab = tabId \? await getTabById\(tabId\) : await getActiveTab\(\)/);
+  assert.match(backgroundSource, /getStatusForActiveTab\(message\.tabId\)/);
+});
+
 test("options target changes refresh injected tabs instead of the options page only", () => {
   const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
   const optionsSource = fs.readFileSync(path.join(root, "options", "options.js"), "utf8");
@@ -1590,6 +1839,15 @@ test("options target changes refresh injected tabs instead of the options page o
   assert.match(backgroundSource, /chrome\.tabs\.query\(\{\}/);
   assert.match(backgroundSource, /message\.scope === "all-open-tabs"/);
   assert.match(backgroundSource, /type: "WLG_REFRESH_SETTINGS"/);
+});
+
+test("options refresh ignores tabs that cannot receive settings", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /Promise\.allSettled\(tabs\.map\(\(tab\) => refreshTab\(tab, sanitizedSourceSettings, forceEnabledFromSource\)\)\)/);
+  assert.match(backgroundSource, /const fulfilledStatuses = refreshResults/);
+  assert.match(backgroundSource, /failed: refreshResults\.filter\(\(result\) => result\.status === "rejected"\)\.length/);
+  assert.doesNotMatch(backgroundSource, /const statuses = await Promise\.all\(tabs\.map\(\(tab\) => refreshTab\(tab, sanitizedSourceSettings, forceEnabledFromSource\)\)\)/);
 });
 
 test("options apply button confirms only after extension refresh response", () => {
@@ -1616,10 +1874,13 @@ test("options diagnostic export includes actionable streamer fields without priv
   const optionsSource = fs.readFileSync(path.join(root, "options", "options.js"), "utf8");
 
   assert.match(optionsSource, /function detectBrowserFamily\(userAgent\)/);
-  assert.match(optionsSource, /function buildDiagnosticQuality\(activeTab\)/);
-  assert.match(optionsSource, /diagnosticQuality: buildDiagnosticQuality\(activeTab\)/);
+  assert.match(optionsSource, /function buildDiagnosticQuality\(activeTab, desktopBridge\)/);
+  assert.match(optionsSource, /diagnosticQuality: buildDiagnosticQuality\(activeTab, desktopBridge\)/);
   assert.match(optionsSource, /reason: "extension-not-active-on-current-tab"/);
   assert.match(optionsSource, /reason: "ready-for-bug-report"/);
+  assert.match(optionsSource, /reason: "standalone-media-html-unavailable"/);
+  assert.match(optionsSource, /reason: "desktop-fallback-active"/);
+  assert.match(optionsSource, /Controle via Windows actif/);
   assert.match(optionsSource, /nextStep:/);
   assert.match(optionsSource, /streamerDiagnostics:\s*{/);
   assert.match(optionsSource, /browserFamily: detectBrowserFamily/);
@@ -2235,12 +2496,109 @@ test("tab capture diagnostics distinguish startup from live silent capture", () 
   assert.match(offscreenJs, /captureSignalState,\s*captureRestartCount: Number\(restartCount\) \|\| 0/);
   assert.match(offscreenJs, /captureSignalState === "no-signal"/);
   assert.match(offscreenJs, /Capture d'onglet active, piste audio live, mais aucun signal Web Audio detecte/);
+  assert.match(offscreenJs, /const captureFallbackRecommended = captureSignalState === "no-signal"/);
+  assert.match(offscreenJs, /const captureFallbackReason = captureFallbackRecommended \? "tab-capture-no-signal"/);
+  assert.match(offscreenJs, /function scheduleCaptureSignalWatchdog\(tabId\)/);
+  assert.match(offscreenJs, /CAPTURE_NO_SIGNAL_WATCHDOG_MS \+ 250/);
+  assert.match(offscreenJs, /capture\.status\.captureSignalState !== "starting"/);
+  assert.match(offscreenJs, /handleNormalizerState\(tabId, capture\.stream, capture\.normalizer\.getState\(\), capture\.startedAt, capture\.restartCount\)/);
   assert.match(popupSource, /captureSignalState:/);
+  assert.match(popupSource, /fallbackRecommended:/);
+  assert.match(popupSource, /fallbackReason:/);
   assert.match(popupSource, /status\.captureSignalState === "no-signal"/);
   assert.match(popupSource, /status\.captureSignalState === "unavailable"/);
   assert.match(optionsSource, /captureSignalState:/);
+  assert.match(optionsSource, /fallbackRecommended:/);
+  assert.match(optionsSource, /fallbackReason:/);
+  assert.match(optionsSource, /reason: "tab-capture-no-signal"/);
   assert.match(optionsSource, /contextState:/);
   assert.match(optionsSource, /audioTrackCount:/);
+});
+
+test("failed media fallback publishes stopped capture fallback instead of stale live capture", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /async function fallbackSilentCaptureToMedia\(tabId, status\)/);
+  assert.match(backgroundSource, /function buildStoppedTabCaptureFallbackStatus\(status, overrides = \{\}\)/);
+  assert.match(backgroundSource, /sourceType: incoming\.sourceType \|\| "media-html"/);
+  assert.match(backgroundSource, /captureSignalState: "no-signal"/);
+  assert.match(backgroundSource, /captureFallbackRecommended: true/);
+  assert.match(backgroundSource, /captureFallbackReason: "tab-capture-no-signal"/);
+  assert.match(backgroundSource, /contextState: ""/);
+  assert.match(backgroundSource, /audioTrackCount: 0/);
+  assert.match(backgroundSource, /captureTrackState: ""/);
+  assert.match(backgroundSource, /captureMuted: false/);
+  assert.match(backgroundSource, /await stopSilentTabCapture\(tabId\)/);
+  assert.match(backgroundSource, /forwardCaptureStatusToBridge\(tabId, mediaFallbackObservation\)/);
+  assert.match(backgroundSource, /return mediaFallbackObservation;/);
+  assert.doesNotMatch(backgroundSource, /enabled: false,\s*sourceType: "none",\s*captureFallbackReason: "tab-audible-but-web-audio-silent"/);
+});
+
+test("capture status is forced disabled when extension-wide settings are disabled", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /async function handleCaptureStatusMessage\(message\)/);
+  assert.match(backgroundSource, /chrome\.runtime\.onMessage\.addListener\(\(message, sender, sendResponse\) => \{/);
+  assert.match(backgroundSource, /if \(!globalSettings \|\| !globalSettings\.enabled\)/);
+  assert.match(backgroundSource, /const disabledStatus = updateCaptureStatus\(\s*message\.tabId/);
+  assert.match(backgroundSource, /forwardCaptureStatusToBridge\(message\.tabId, disabledStatus\)/);
+  assert.match(backgroundSource, /return \{ ok: true, enabled: false \};/);
+});
+
+test("media html fallback with no processed media keeps dynamic tabs in desktop fallback", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /function markMediaHtmlNoMediaAsDesktopFallback\(tab, status, globalEnabled\)/);
+  assert.match(backgroundSource, /Settings\.getPreferredSourceTypeForDomain\(site\) !== "tab-capture"/);
+  assert.match(backgroundSource, /Number\(status\.mediaDetected\) > 0 \|\| Number\(status\.mediaProcessed\) > 0/);
+  assert.match(backgroundSource, /captureFallbackReason: "no-media-element-detected"/);
+  assert.match(backgroundSource, /const shared = markMediaHtmlNoMediaAsDesktopFallback\(tab, \{/);
+  assert.match(backgroundSource, /function shouldKeepDesktopFallbackAfterMediaFallback\(fallbackStatus\)/);
+  assert.match(backgroundSource, /fallbackStatus\.sourceType === "media-html"/);
+  assert.match(backgroundSource, /fallbackStatus\.captureFallbackRecommended/);
+  assert.match(backgroundSource, /fallbackStatus\.captureFallbackReason/);
+  assert.match(backgroundSource, /Number\(fallbackStatus\.mediaProcessed\) < 1/);
+  assert.doesNotMatch(backgroundSource, /Number\(fallbackStatus\.mediaDetected\) > 0/);
+  assert.match(backgroundSource, /if \(shouldKeepDesktopFallbackAfterMediaFallback\(fallbackStatus\)\) \{/);
+  assert.match(backgroundSource, /lastError: fallbackStatus\.lastError \|\| fallbackStatus\.error \|\| "Fallback media HTML actif mais aucun media controlable. La source reste visible en observation ; fallback Windows seulement si l'app desktop est connectee."/);
+});
+
+test("popup keeps explicit desktop fallback active on explicit tab capture sites", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(popupSource, /function hasExplicitDesktopFallback\(status\)/);
+  assert.match(popupSource, /status\.captureFallbackRecommended/);
+  assert.match(popupSource, /status\.captureFallbackReason/);
+  assert.match(popupSource, /status\.fallbackRecommended/);
+  assert.match(popupSource, /status\.fallbackReason/);
+  assert.match(popupSource, /function isActiveUncontrollableMediaFallback\(status\)/);
+  assert.match(popupSource, /Number\(status\.mediaDetected\) < 1/);
+  assert.match(popupSource, /Number\(status\.mediaProcessed\) < 1/);
+  assert.match(popupSource, /if \(isActiveUncontrollableMediaFallback\(status\)\) return false/);
+  assert.match(popupSource, /if \(hasExplicitDesktopFallback\(status\)\) return false/);
+  assert.match(popupSource, /const shouldStopProtection = enabled && !requiresTabCaptureUpgrade\(status\)/);
+});
+
+test("popup presents desktop fallback as Windows control instead of incompatible source", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+  const frMessages = readJson("_locales/fr/messages.json");
+  const enMessages = readJson("_locales/en/messages.json");
+
+  assert.match(popupSource, /const desktopFallbackNeeded = needsDesktopFallback\(status\)/);
+  assert.match(popupSource, /diagnosticDesktopFallbackActive/);
+  assert.match(popupSource, /diagnosticDesktopFallbackDetail/);
+  assert.match(popupSource, /if \(status\.lastError && !desktopFallbackNeeded\)/);
+  assert.match(popupSource, /popupWindowsControl/);
+  assert.equal(frMessages.diagnosticDesktopFallbackActive.message, "Controle via Windows");
+  assert.equal(enMessages.diagnosticDesktopFallbackActive.message, "Windows control");
+  assert.equal(
+    frMessages.diagnosticDesktopFallbackDetail.message,
+    "L'extension observe l'onglet, mais le son sera ajuste par le volume Windows du navigateur."
+  );
+  assert.equal(
+    enMessages.diagnosticDesktopFallbackDetail.message,
+    "The extension can observe this tab, but volume will be adjusted through the browser's Windows mixer."
+  );
 });
 
 test("popup exposes one protect action while background routes to the best audio source", () => {
@@ -2251,11 +2609,12 @@ test("popup exposes one protect action while background routes to the best audio
   assert.match(popupHtml, /id="protectButton"/);
   assert.doesNotMatch(popupHtml, /id="captureTabButton"/);
   assert.match(popupSource, /protectButton: document\.getElementById\("protectButton"\)/);
-  assert.match(popupSource, /sendRuntimeMessage\("WLG_PROTECT_CURRENT_TAB"\)/);
+  assert.match(popupSource, /sendRuntimeMessage\("WLG_PROTECT_CURRENT_TAB", activeTabPayload\(\)\)/);
   assert.match(popupSource, /popupProtectTab/);
-  assert.match(backgroundSource, /async function protectActiveTab\(\)/);
+  assert.match(backgroundSource, /async function protectActiveTab\(options\)/);
+  assert.match(backgroundSource, /const site = await getTabSite\(tab\)/);
   assert.match(backgroundSource, /Settings\.getPreferredSourceTypeForDomain\(site\)/);
-  assert.match(backgroundSource, /startTabCaptureForActiveTab\(\{ replaceMedia: true \}\)/);
+  assert.match(backgroundSource, /startTabCaptureForActiveTab\(\{ replaceMedia: true, tabId: tab\.id \}\)/);
   assert.match(backgroundSource, /WLG_PROTECT_CURRENT_TAB/);
 });
 
@@ -2275,25 +2634,151 @@ test("popup upgrades dynamic platform protection instead of stopping stale html 
   assert.match(popupSource, /Settings\.getPreferredSourceTypeForDomain\(status\.site\) === "tab-capture"/);
   assert.match(popupSource, /status\.sourceType !== "tab-capture"/);
   assert.match(popupSource, /const shouldStopProtection = enabled && !requiresTabCaptureUpgrade\(status\)/);
-  assert.match(popupSource, /const shouldStopProtection = currentStatus && currentStatus\.enabled && !requiresTabCaptureUpgrade\(currentStatus\)/);
-  assert.match(popupSource, /setEnabled\(!shouldStopProtection\)/);
+  assert.match(popupSource, /function getProtectionStateForButton/);
+  assert.match(popupSource, /const effectiveEnabled = getStatusEnabledState\(\);/);
+  assert.match(popupSource, /return effectiveEnabled && !requiresTabCaptureUpgrade\(currentStatus\);/);
+  assert.match(popupSource, /setEnabled\(!active\)/);
+});
+
+test("popup keeps the toggle tied to current tab protection after any in-flight action resolves", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(
+    popupSource,
+    /function getVisualEnabledState\(\)\s*\{\s*const pendingState = getPendingToggleState\(\);\s*if \(pendingState !== null\) return pendingState;\s*return getGlobalEnabledState\(\);\s*\}/s
+  );
+  assert.doesNotMatch(popupSource, /elements\.enabledToggle\.checked = getToggleVisualState\(\)/);
+  assert.match(popupSource, /const toggleVisualState = getToggleVisualState\(\)/);
+  assert.match(popupSource, /const tabProtectionActive = shouldStopProtection \|\| needsDesktopFallbackProtection/);
+  assert.match(
+    popupSource,
+    /elements\.enabledToggle\.checked = Boolean\(toggleVisualState && \(tabProtectionActive \|\| activationPending \|\| unknownStatusWithGlobalProtection\)\)/
+  );
+});
+
+test("popup keeps the activation switch visually on while an enabled tab status is still unknown", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(popupSource, /function isUnknownProtectionStatus\(status\)/);
+  assert.match(popupSource, /const activationPending = setEnabledInProgress \|\| getPendingToggleState\(\) === true \|\| getActiveToggleIntentState\(\) === true/);
+  assert.match(popupSource, /const unknownStatusWithGlobalProtection = Boolean\(currentSettings && currentSettings\.enabled\) && isUnknownProtectionStatus\(status\)/);
+  assert.match(popupSource, /elements\.enabledToggle\.checked = Boolean\(toggleVisualState && \(tabProtectionActive \|\| activationPending \|\| unknownStatusWithGlobalProtection\)\)/);
+});
+
+test("popup stores a short-lived toggle intent to prevent rapid on/off bouncing", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(popupSource, /const TOGGLE_INTENT_KEY = "streamVolumeGuard\.extensionToggleIntent";/);
+  assert.match(popupSource, /function normalizeToggleIntent\(/);
+  assert.match(popupSource, /function getActiveToggleIntentState\(/);
+  assert.match(popupSource, /function persistToggleIntent\(enabled\)/);
+  assert.match(
+    popupSource,
+    /function getGlobalEnabledState\(\)[\s\S]*const observedEnabled = Boolean\(currentSettings && currentSettings\.enabled\);[\s\S]*const intentState = getActiveToggleIntentState\(\);/s
+  );
+  assert.match(popupSource, /const observedEnabled = Boolean\(currentSettings && currentSettings\.enabled\);/);
+  assert.match(
+    popupSource,
+    /if \(intentState !== null\) \{\s*if \(intentState !== observedEnabled\) \{\s*clearToggleIntentState\(\);\s*return observedEnabled/s
+  );
+  assert.match(popupSource, /await refreshToggleIntentState\(\);/);
+});
+
+test("popup keeps standalone media html limits active without desktop fallback", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(popupSource, /const needsDesktopFallbackProtection = needsDesktopFallback\(status\)/);
+  assert.match(popupSource, /function isDesktopBridgeConnected\(\)/);
+  assert.match(popupSource, /isDesktopBridgeConnected\(\) &&\s*status &&\s*status\.enabled/s);
+  assert.match(popupSource, /const desktopFallbackActive = needsDesktopFallbackProtection/);
+  assert.match(popupSource, /elements\.statusBadge\.classList\.toggle\("is-on", \(shouldStopProtection \|\| desktopFallbackActive\) && !excluded\)/);
+  assert.doesNotMatch(popupSource, /standaloneDesktopFallbackActive/);
+  assert.doesNotMatch(popupSource, /popupWindowsControl", "Windows control"\)} \(\$\{i18n\("popupDesktopStandalone", "standalone"\)\}\)/);
+});
+
+test("standalone diagnostics keep media html limits separate from desktop fallback", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+  const optionsSource = fs.readFileSync(path.join(root, "options", "options.js"), "utf8");
+  const frMessages = readJson("_locales/fr/messages.json");
+  const enMessages = readJson("_locales/en/messages.json");
+
+  assert.match(popupSource, /const desktopFallbackRecommended = Boolean\(currentDesktopLink\.connected && currentStatus && currentStatus\.captureFallbackRecommended\)/);
+  assert.match(popupSource, /function isTabCaptureFallbackReason\(reason\)/);
+  assert.match(popupSource, /const rawCaptureFallbackReason = getCaptureFallbackReason\(currentStatus\)/);
+  assert.match(popupSource, /const rawMediaHtmlFallbackReason = getMediaHtmlFallbackReasonForDiagnostic\(currentStatus\)/);
+  assert.match(popupSource, /fallbackRecommended:\s*desktopFallbackRecommended/);
+  assert.match(popupSource, /fallbackReason:\s*desktopFallbackRecommended \?/);
+  assert.match(popupSource, /mediaHtmlFallbackReason:\s*!currentDesktopLink\.connected \? rawMediaHtmlFallbackReason : ""/);
+  assert.match(popupSource, /captureFallbackReason:\s*rawCaptureFallbackReason/);
+  assert.match(popupSource, /function hasStandaloneMediaHtmlLimit\(status\)/);
+  assert.match(popupSource, /!isDesktopBridgeConnected\(\) &&\s*status &&\s*status\.enabled/s);
+  assert.match(popupSource, /diagnosticStandaloneMediaHtmlLimit/);
+  assert.match(popupSource, /diagnosticStandaloneMediaHtmlLimitDetail/);
+  assert.match(optionsSource, /const desktopFallbackRecommended = Boolean\(desktopBridge && desktopBridge\.connected && source\.captureFallbackRecommended\)/);
+  assert.match(optionsSource, /function isTabCaptureFallbackReason\(reason\)/);
+  assert.match(optionsSource, /const rawCaptureFallbackReason = getCaptureFallbackReason\(source\)/);
+  assert.match(optionsSource, /const rawMediaHtmlFallbackReason = getMediaHtmlFallbackReasonForDiagnostic\(source\)/);
+  assert.match(optionsSource, /mediaHtmlFallbackReason:\s*!desktopFallbackRecommended \? rawMediaHtmlFallbackReason : ""/);
+  assert.match(optionsSource, /captureFallbackReason:\s*rawCaptureFallbackReason/);
+  assert.match(optionsSource, /reason:\s*"standalone-media-html-unavailable"/);
+  assert.equal(frMessages.diagnosticStandaloneMediaHtmlLimit.message, "Limite media HTML");
+  assert.equal(enMessages.diagnosticStandaloneMediaHtmlLimit.message, "HTML media limit");
+});
+
+test("popup global toggle is not blocked by current tab exclusion", () => {
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(
+    popupSource,
+    /function getGlobalEnabledState\(\)\s*\{\s*const observedEnabled = Boolean\(currentSettings && currentSettings\.enabled\);\s*const intentState = getActiveToggleIntentState\(\);\s*if \(intentState !== null\)\s*\{\s*if \(intentState !== observedEnabled\)\s*\{\s*clearToggleIntentState\(\);\s*return observedEnabled;\s*\}\s*return observedEnabled;\s*\}\s*return observedEnabled;\s*\}/s
+  );
+  assert.match(
+    popupSource,
+    /if \(!storedIntent\)\s*\{\s*clearToggleIntentState\(\);\s*return;\s*\}/s
+  );
 });
 
 test("popup does not show stale html media mode as fully protected on dynamic platforms", () => {
   const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
 
-  assert.match(popupSource, /elements\.enabledToggle\.checked = currentSettings\.enabled && shouldStopProtection/);
-  assert.match(popupSource, /elements\.statusBadge\.classList\.toggle\("is-on", shouldStopProtection && !excluded\)/);
-  assert.match(popupSource, /shouldStopProtection[\s\S]*\? i18n\("popupActive", "active"\)/);
+  assert.match(popupSource, /function getToggleVisualState/);
+  assert.match(popupSource, /const toggleVisualState = getToggleVisualState\(\)/);
+  assert.match(popupSource, /const tabProtectionActive = shouldStopProtection \|\| needsDesktopFallbackProtection/);
+  assert.match(popupSource, /elements\.enabledToggle\.checked = Boolean\(toggleVisualState && \(tabProtectionActive \|\| activationPending \|\| unknownStatusWithGlobalProtection\)\)/);
+  assert.match(popupSource, /const desktopFallbackActive = needsDesktopFallbackProtection/);
+  assert.match(popupSource, /elements\.statusBadge\.classList\.toggle\("is-on", \(shouldStopProtection \|\| desktopFallbackActive\) && !excluded\)/);
+  assert.match(popupSource, /statusBadgeText = i18n\("popupActive", "active"\)/);
 });
 
 test("dynamic platforms fail loudly when tab capture is unavailable", () => {
   const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
 
-  assert.match(backgroundSource, /preferredSourceType === "tab-capture" && !canCaptureTab\(\)/);
+  assert.match(backgroundSource, /function buildTabCaptureUnavailableStatus\(tab, reason\)/);
+  assert.match(backgroundSource, /function captureSignalStateForUnavailableReason\(reason\)/);
+  assert.match(backgroundSource, /return "restricted"/);
+  assert.match(backgroundSource, /return "needs-user-action"/);
+  assert.match(backgroundSource, /return "unsupported"/);
+  assert.match(backgroundSource, /captureSignalState:\s*captureSignalStateForUnavailableReason\(fallbackReason\)/);
+  assert.match(backgroundSource, /const fallbackReason = reason \|\| "tab-capture-unsupported"/);
+  assert.match(backgroundSource, /captureFallbackReason:\s*fallbackReason/);
+  assert.match(backgroundSource, /status:\s*"Unknown"/);
   assert.match(backgroundSource, /sourceType: "tab-capture"/);
-  assert.match(backgroundSource, /Capture d'onglet indisponible/);
-  assert.match(backgroundSource, /preferredSourceType === "tab-capture" && !canCaptureTab\(\)[\s\S]*Capture d'onglet indisponible[\s\S]*if \(preferredSourceType === "tab-capture" && canCaptureTab\(\)\)/);
+  assert.match(backgroundSource, /captureResult = await startTabCaptureForActiveTab\(\{ replaceMedia: true, tabId: tab\.id \}\)/);
+  assert.match(backgroundSource, /return fallbackTabCaptureStartToMedia\(tabWithSite, captureResult/);
+  assert.match(backgroundSource, /buildTabCaptureUnavailableStatus\(tabWithSite, "tab-capture-unsupported"\)/);
+});
+
+test("explicit tab capture routing keeps html media as fallback only", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(backgroundSource, /async function protectActiveTab\(options\)[\s\S]*captureResult = await startTabCaptureForActiveTab\(\{ replaceMedia: true, tabId: tab\.id \}\)/);
+  assert.match(backgroundSource, /async function fallbackTabCaptureStartToMedia\(tab, failedStatus\)/);
+  assert.match(backgroundSource, /captureFallbackReason:\s*"tab-capture-start-failed"/);
+  assert.match(backgroundSource, /injectAndSet\(tab, true\)/);
+  assert.match(backgroundSource, /eventName:\s*"browser\.tab_capture_start_fallback"/);
+  assert.doesNotMatch(backgroundSource, /preferredSourceType === "tab-capture" && canCaptureTab\(\)/);
+  assert.match(popupSource, /function requiresTabCaptureUpgrade\(status\)[\s\S]*Settings\.getPreferredSourceTypeForDomain\(status\.site\) === "tab-capture"/);
 });
 
 test("tab capture exposes audio health so TikTok no-effect reports are diagnosable", () => {
@@ -2323,6 +2808,7 @@ test("tab capture respects exclusions and stops on navigation", () => {
 test("manifest uses localized metadata and Guard Signal PNG icons", () => {
   const manifest = readJson("manifest.json");
 
+  assert.equal(manifest.version, "0.1.38");
   assert.equal(manifest.default_locale, "en");
   assert.equal(manifest.name, "__MSG_extensionName__");
   assert.equal(manifest.description, "__MSG_extensionDescription__");
@@ -2414,6 +2900,25 @@ test("popup exposes desktop bridge status while keeping standalone mode usable",
   assert.match(js, /BridgeClient\.checkDesktopBridgeHealth/);
   assert.match(js, /desktopBridgeConnected:/);
   assert.match(js, /desktopBridgeMode:/);
+  assert.match(js, /refresh\(true\)/);
+  assert.match(js, /await refreshDesktopLinkStatus\(true\)/);
+  assert.match(js, /diagnosticDesktopFallbackActive/);
+});
+
+test("options diagnostic exports desktop bridge state without forcing standalone fallback", () => {
+  const html = fs.readFileSync(path.join(root, "options", "options.html"), "utf8");
+  const js = fs.readFileSync(path.join(root, "options", "options.js"), "utf8");
+  const bridgeScriptIndex = html.indexOf("../bridge/client.js");
+  const optionsScriptIndex = html.indexOf("options.js");
+
+  assert.ok(bridgeScriptIndex >= 0, "options should load the local bridge client");
+  assert.ok(optionsScriptIndex > bridgeScriptIndex, "bridge client should load before options.js");
+  assert.match(js, /async function getDesktopBridgeStatus\(\)/);
+  assert.match(js, /BridgeClient\.checkDesktopBridgeHealth/);
+  assert.match(js, /desktopBridge: desktopBridge/);
+  assert.match(js, /buildDiagnosticQuality\(activeTab, desktopBridge\)/);
+  assert.match(js, /reason: "standalone-media-html-unavailable"/);
+  assert.match(js, /reason: "desktop-fallback-active"/);
 });
 
 test("popup copied diagnostic contains actionable local-safe fields", () => {
@@ -2434,6 +2939,42 @@ test("popup copied diagnostic contains actionable local-safe fields", () => {
   assert.match(js, /includesPageTitle:\s*false/);
   assert.match(js, /includesAudio:\s*false/);
   assert.doesNotMatch(js, /document\.title/);
+});
+
+test("popup diagnostic copies cached state immediately and ignores repeated clicks while copying", () => {
+  const js = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(js, /let diagnosticCopyInProgress = false/);
+  assert.match(js, /if \(diagnosticCopyInProgress\) return/);
+  assert.match(js, /diagnosticCopyInProgress = true/);
+  assert.match(js, /elements\.copyDiagnosticButton\.disabled = true/);
+  assert.match(js, /const diagnostic = buildPopupDiagnostic\(\)/);
+  assert.match(js, /await navigator\.clipboard\.writeText\(JSON\.stringify\(diagnostic, null, 2\)\)/);
+  assert.doesNotMatch(js, /await refresh\(true\);[\s\S]*navigator\.clipboard\.writeText/);
+  assert.match(js, /diagnosticCopyInProgress = false/);
+  assert.match(js, /elements\.copyDiagnosticButton\.disabled = false/);
+});
+
+test("popup diagnostic exposes status routing errors without leaking page URL or title", () => {
+  const js = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+
+  assert.match(js, /function runtimeEmptyResponse\(type\)/);
+  assert.match(js, /resolve\(response \|\| runtimeEmptyResponse\(type\)\)/);
+  assert.doesNotMatch(js, /resolve\(response \|\| \{ ok: true \}\)/);
+  assert.match(js, /statusOk: currentStatus \? currentStatus\.ok !== false : false/);
+  assert.match(js, /statusError: currentStatus && currentStatus\.error \? String\(currentStatus\.error\)\.slice\(0, 300\) : ""/);
+  assert.match(js, /statusRoute: currentStatus && currentStatus\.statusRoute \? String\(currentStatus\.statusRoute\)\.slice\(0, 120\) : ""/);
+  assert.match(js, /diagnosticReason: currentStatus && currentStatus\.diagnosticReason \? String\(currentStatus\.diagnosticReason\)\.slice\(0, 120\) : ""/);
+  assert.match(js, /popupTabIdKnown: Boolean\(activeTabContext && activeTabContext\.id\)/);
+  assert.match(js, /globalEnabled: Boolean\(currentSettings && currentSettings\.enabled\)/);
+  assert.match(js, /visualEnabled: Boolean\(elements\.enabledToggle && elements\.enabledToggle\.checked\)/);
+  assert.match(js, /skippedAlreadyProcessed: finiteNumber\(currentStatus && currentStatus\.skippedAlreadyProcessed, 0\)/);
+  assert.match(js, /canInject: hasDiagnosticBoolean\(currentStatus, "canInject"\) \? currentStatus\.canInject !== false : false/);
+  assert.match(js, /function getDiagnosticLastError\(status\)/);
+  assert.match(js, /message\.toLowerCase\(\)\.includes\("fallback desktop"\)/);
+  assert.match(js, /lastError:\s*getDiagnosticLastError\(currentStatus\)/);
+  assert.doesNotMatch(js, /url:/);
+  assert.doesNotMatch(js, /title:/);
 });
 
 test("popup exposes trust badges for local open-source no-tracking adoption", () => {
@@ -2882,6 +3423,7 @@ test("local bridge client sends browser_source_observed only to localhost", () =
   assert.match(bridgeSource, /isControllable/);
   assert.match(bridgeSource, /targetRmsDb:\s*clampOptionalTargetDb\(status\.targetRmsDb\)/);
   assert.match(bridgeSource, /targetProfile:\s*sanitizeText\(status\.targetProfile,\s*""\)/);
+  assert.match(bridgeSource, /captureSignalState:\s*sanitizeText\(status\.captureSignalState,\s*""\)/);
   assert.match(bridgeSource, /sendBrowserSourceObserved/);
   assert.match(bridgeSource, /detectBrowserProcess/);
   assert.match(bridgeSource, /navigator\.brave/);
@@ -2904,8 +3446,11 @@ test("local bridge client can check desktop health without taking control", () =
   const bridgeSource = fs.readFileSync(path.join(root, "bridge", "client.js"), "utf8");
 
   assert.match(bridgeSource, /LOCAL_HEALTH_ENDPOINT\s*=\s*"http:\/\/127\.0\.0\.1:47841\/health"/);
+  assert.match(bridgeSource, /const LOCAL_FETCH_TIMEOUT_MS = 650/);
+  assert.match(bridgeSource, /function fetchWithLocalTimeout\(endpoint, options\)/);
+  assert.match(bridgeSource, /new AbortController\(\)/);
   assert.match(bridgeSource, /async function checkDesktopBridgeHealth\(\)/);
-  assert.match(bridgeSource, /fetch\(LOCAL_HEALTH_ENDPOINT/);
+  assert.match(bridgeSource, /fetchWithLocalTimeout\(LOCAL_HEALTH_ENDPOINT/);
   assert.match(bridgeSource, /connected:\s*true/);
   assert.match(bridgeSource, /mode:\s*"desktop"/);
   assert.match(bridgeSource, /mode:\s*"standalone"/);
@@ -2976,12 +3521,60 @@ test("content forwards sanitized browser source status to background", () => {
   assert.match(contentSource, /targetRmsDb:\s*state\.targetRmsDb/);
   assert.match(contentSource, /targetProfile:\s*settings\.desktopTargetProfile\s*\|\|\s*state\.activeProfile/);
   assert.match(contentSource, /function getBrowserControlSurface\(\)/);
-  assert.match(contentSource, /state\.enabled && state\.calibrationState !== "skipped" \? "BrowserGain" : "ObserveOnly"/);
-  assert.match(contentSource, /isControllable:\s*controlSurface === "BrowserGain"/);
+  assert.match(contentSource, /SourceState\.classifyBrowserStatus\(source\)/);
+  assert.match(contentSource, /browserState:\s*classification\.browserState/);
+  assert.match(contentSource, /reason:\s*classification\.reason/);
+  assert.match(contentSource, /recommendedAction:\s*classification\.recommendedAction/);
+  assert.match(contentSource, /isControllable:\s*classification\.isControllable/);
   assert.match(contentSource, /calibrationState:\s*state\.calibrationState/);
   assert.match(contentSource, /measuredRmsDb:\s*state\.measuredRmsDb/);
   assert.match(contentSource, /appliedGainDb:\s*state\.appliedGainDb/);
   assert.doesNotMatch(contentSource, /location\.href/);
+});
+
+test("content marks enabled media-html with no controllable media as desktop fallback", () => {
+  const contentSource = fs.readFileSync(path.join(root, "content.js"), "utf8");
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+  const popupSource = fs.readFileSync(path.join(root, "popup", "popup.js"), "utf8");
+  const optionsSource = fs.readFileSync(path.join(root, "options", "options.js"), "utf8");
+
+  assert.match(contentSource, /const MEDIA_HTML_SIGNAL_TIMEOUT_MS = 2500/);
+  assert.match(contentSource, /let mediaHtmlSignalWatchTimer = null/);
+  assert.match(contentSource, /function hasUsableMediaHtmlSignal\(\)/);
+  assert.match(contentSource, /function resetMediaHtmlSignalWatch\(\)/);
+  assert.match(contentSource, /function scheduleMediaHtmlSignalWatchExpiry\(\)/);
+  assert.match(contentSource, /root\.setTimeout\(\(\) => \{[\s\S]*scanMedia\(\);[\s\S]*MEDIA_HTML_SIGNAL_TIMEOUT_MS \+ 100/);
+  assert.match(contentSource, /function getMediaHtmlFallbackReason\(\)/);
+  assert.match(contentSource, /function isMediaHtmlPipelineReady\(\)/);
+  assert.match(contentSource, /if \(!isEffectivelyEnabled\(\)\) return ""/);
+  assert.match(contentSource, /if \(Number\(state\.mediaDetected\) < 1\) return isMediaHtmlSignalWatchExpired\(\) \? "no-media-element-detected" : ""/);
+  assert.match(contentSource, /if \(Number\(state\.mediaProcessed\) < 1\) return isMediaHtmlSignalWatchExpired\(\) \? "no-controllable-media-detected" : ""/);
+  assert.match(contentSource, /return "media-html-no-usable-signal"/);
+  assert.match(contentSource, /hasUsableMediaHtmlSignal\(\)/);
+  assert.match(contentSource, /getBrowserClassification\(\)\.controlSurface/);
+  assert.match(contentSource, /SourceState\.classifyBrowserStatus\(source\)/);
+  assert.match(contentSource, /captureFallbackRecommended:\s*Boolean\(fallbackReason\)/);
+  assert.match(contentSource, /captureFallbackReason:\s*fallbackReason/);
+  assert.match(contentSource, /status:\s*classification\.status/);
+  assert.match(contentSource, /controlSurface:\s*classification\.controlSurface/);
+  assert.match(contentSource, /isControllable:\s*classification\.isControllable/);
+  assert.match(backgroundSource, /function markMediaHtmlNoMediaAsDesktopFallback\(tab, status, globalEnabled\)/);
+  assert.match(backgroundSource, /if \(!status \|\| !globalEnabled \|\| status\.sourceType !== "media-html"\) return status/);
+  assert.match(backgroundSource, /enabled:\s*true/);
+  assert.match(backgroundSource, /captureFallbackReason:\s*"no-media-element-detected"/);
+  assert.match(popupSource, /fallbackReason:\s*desktopFallbackRecommended \? rawMediaHtmlFallbackReason : ""/);
+  assert.match(popupSource, /mediaHtmlFallbackReason:\s*!currentDesktopLink\.connected \? rawMediaHtmlFallbackReason : ""/);
+  assert.match(popupSource, /captureFallbackReason:\s*rawCaptureFallbackReason/);
+  assert.match(optionsSource, /fallbackReason:\s*desktopFallbackRecommended \? rawFallbackReason : ""/);
+  assert.match(optionsSource, /mediaHtmlFallbackReason:\s*!desktopFallbackRecommended \? rawMediaHtmlFallbackReason : ""/);
+  assert.match(optionsSource, /captureFallbackReason:\s*rawCaptureFallbackReason/);
+});
+
+test("background keeps tab audible metadata on media-html diagnostics", () => {
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(backgroundSource, /tabAudible:\s*Boolean\(tab && tab\.audible\)/);
+  assert.match(backgroundSource, /tabActive:\s*Boolean\(tab && tab\.active\)/);
 });
 
 test("normalizer uses browser gain calibration instead of chasing browser sources forever", () => {
@@ -2994,6 +3587,36 @@ test("normalizer uses browser gain calibration instead of chasing browser source
   assert.match(normalizerSource, /BrowserGainCalibration\.createBrowserGainCalibration/);
   assert.match(normalizerSource, /onCalibrationEvent/);
   assert.match(normalizerSource, /calibration\.gainDb/);
+});
+
+test("browser gain calibration window is desktop-only", () => {
+  const normalizerSource = fs.readFileSync(path.join(root, "audio", "normalizer.js"), "utf8");
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(normalizerSource, /const DESKTOP_BROWSER_GAIN_MEASUREMENT_WINDOW_MS = 18000/);
+  assert.doesNotMatch(normalizerSource, /STANDALONE_BROWSER_GAIN_MEASUREMENT_WINDOW_MS/);
+  assert.match(normalizerSource, /function getBrowserGainCalibrationOptions\(sourceSettings\)/);
+  assert.match(normalizerSource, /sourceSettings && sourceSettings\.desktopBridgeConnected/);
+  assert.match(normalizerSource, /function createBrowserGainCalibrationForSettings\(sourceSettings\)/);
+  assert.match(normalizerSource, /BrowserGainCalibration\.createBrowserGainCalibration\(getBrowserGainCalibrationOptions\(sourceSettings\)\)/);
+  assert.match(normalizerSource, /refreshBrowserGainCalibrationForSettings\(runtimeSettings\)/);
+  assert.match(backgroundSource, /function withDesktopBridgeCalibrationMode\(settings, bridgeConnected\)/);
+  assert.match(backgroundSource, /desktopBridgeConnected:\s*Boolean\(bridgeConnected\)/);
+  assert.match(backgroundSource, /browserGainMeasurementWindowMs:\s*bridgeConnected \? 18000 : 0/);
+  assert.match(backgroundSource, /WLG\.BridgeClient\.checkDesktopBridgeHealth/);
+});
+
+test("standalone extension keeps direct target gain while desktop mode uses browser gain calibration", () => {
+  const normalizerSource = fs.readFileSync(path.join(root, "audio", "normalizer.js"), "utf8");
+  const backgroundSource = fs.readFileSync(path.join(root, "background.js"), "utf8");
+
+  assert.match(normalizerSource, /function shouldUseBrowserGainCalibration\(sourceSettings\)/);
+  assert.match(normalizerSource, /return Boolean\(sourceSettings && sourceSettings\.desktopBridgeConnected\)/);
+  assert.match(normalizerSource, /shouldUseBrowserGainCalibration\(runtimeSettings\)[\s\S]*BrowserGainCalibration\.createBrowserGainCalibration/);
+  assert.match(normalizerSource, /const targetGainDb = processingEnabled\s*\?\s*\(calibration \? calibration\.gainDb : dynamicTargetGainDb\)/);
+  assert.match(backgroundSource, /hasDesktopBridgeForSilentMediaUpgrade\(\)/);
+  assert.match(backgroundSource, /if \(!bridgeConnected && !allowsStandaloneSilentMediaUpgrade\(status\)\) \{\s*silentMediaUpgradeCandidates\.delete\(tab\.id\);\s*return;\s*\}/);
+  assert.match(backgroundSource, /function allowsStandaloneSilentMediaUpgrade\(status\)/);
 });
 
 test("background forwards browser source status to local bridge client", () => {
@@ -3017,7 +3640,10 @@ test("background forwards tab capture status to local bridge client", () => {
   assert.match(backgroundSource, /sourceId:\s*`tab-capture:\$\{normalizedTabId \|\| "unknown"\}`/);
   assert.match(backgroundSource, /targetRmsDb:\s*source\.targetRmsDb/);
   assert.match(backgroundSource, /targetProfile:\s*source\.targetProfile\s*\|\|\s*source\.activeProfile\s*\|\|\s*""/);
-  assert.match(backgroundSource, /captureSignalState\s*===\s*"signal" && source\.calibrationState !== "skipped" \? "BrowserGain" : "ObserveOnly"/);
+  assert.match(backgroundSource, /classification = classifyBrowserStatus\(\{[\s\S]*sourceType:\s*"tab-capture"[\s\S]*captureSignalState/s);
+  assert.match(backgroundSource, /controlSurface:\s*classification\.controlSurface/);
+  assert.match(backgroundSource, /browserState:\s*classification\.browserState/);
+  assert.match(backgroundSource, /captureSignalState:\s*captureSignalState/);
   assert.match(backgroundSource, /BridgeClient\.sendBrowserSourceObserved\(message\)/);
 });
 

@@ -61,6 +61,9 @@
   "popupDesktopStandalone": {
     "message": "Mode autonome"
   },
+  "popupWindowsControl": {
+    "message": "Controle via Windows"
+  },
   "popupProtectTab": {
     "message": "Protéger cet onglet"
   },
@@ -261,6 +264,18 @@
   },
   "diagnosticCaptureNoSignal": {
     "message": "Capture active, mais aucun signal audio détecté"
+  },
+  "diagnosticDesktopFallbackActive": {
+    "message": "Controle via Windows"
+  },
+  "diagnosticDesktopFallbackDetail": {
+    "message": "L'extension observe l'onglet, mais le son sera ajuste par le volume Windows du navigateur."
+  },
+  "diagnosticStandaloneMediaHtmlLimit": {
+    "message": "Limite media HTML"
+  },
+  "diagnosticStandaloneMediaHtmlLimitDetail": {
+    "message": "Aucun media HTML controlable n'est detecte en mode autonome. Essaie de recharger la page, ou lance l'app desktop pour le fallback Windows."
   },
   "diagnosticPanicActive": {
     "message": "Cap Panic actif"

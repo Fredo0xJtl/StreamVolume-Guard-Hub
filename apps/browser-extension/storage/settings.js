@@ -79,9 +79,141 @@
     { domains: ["deezer.com"], profileId: "stream" }
   ];
 
-  const PLATFORM_SOURCE_RULES = [
-    { domains: ["tiktok.com"], sourceType: "tab-capture" }
-  ];
+  const MEDIA_HTML_SOURCE_TYPE = "media-html";
+  const TAB_CAPTURE_SOURCE_TYPE = "tab-capture";
+  const PLATFORM_SOURCE_RULES = [];
+  const SOURCE_MEMORY_SCHEMA_VERSION = 1;
+  const DOMAIN_SOURCE_MEMORY_SOURCE_TYPES = [MEDIA_HTML_SOURCE_TYPE, TAB_CAPTURE_SOURCE_TYPE];
+  const DOMAIN_SOURCE_MEMORY_LOCK_TTL_MS = 6 * 60 * 60 * 1000;
+  const DOMAIN_SOURCE_MEMORY_EXPIRY_MS = 14 * 24 * 60 * 60 * 1000;
+  const DOMAIN_SOURCE_MEMORY_SCORE_SUCCESS = 4;
+  const DOMAIN_SOURCE_MEMORY_SCORE_NO_SIGNAL = -3;
+  const DOMAIN_SOURCE_MEMORY_SCORE_NO_MEDIA = -2;
+  const DOMAIN_SOURCE_MEMORY_SCORE_START_FAILED = -3;
+  const DOMAIN_SOURCE_MEMORY_SCORE_UNKNOWN_FAILURE = -2;
+  const DOMAIN_SOURCE_MEMORY_MIN_SCORE_TO_PREFER = 0;
+  const DOMAIN_SOURCE_MEMORY_MIN_ATTEMPTS_TO_CONSIDER = 1;
+  const DOMAIN_SOURCE_MEMORY_MAX_PREFERENCE_FAILURES = 2;
+
+  function normalizeSourceType(sourceType) {
+    if (sourceType === MEDIA_HTML_SOURCE_TYPE) return MEDIA_HTML_SOURCE_TYPE;
+    if (sourceType === TAB_CAPTURE_SOURCE_TYPE) return TAB_CAPTURE_SOURCE_TYPE;
+    return "";
+  }
+
+  function emptySourceMemorySnapshot() {
+    return {
+      attempts: 0,
+      successes: 0,
+      failures: 0,
+      consecutiveFailures: 0,
+      score: 0,
+      lastOutcome: "",
+      lastOutcomeReason: "",
+      lastUpdatedAt: 0
+    };
+  }
+
+  function normalizeSourceMemorySnapshot(raw) {
+    const now = Date.now();
+    const value = raw && typeof raw === "object" ? raw : {};
+    return {
+      attempts: Number.isFinite(Number(value.attempts)) ? Number(value.attempts) : 0,
+      successes: Number.isFinite(Number(value.successes)) ? Number(value.successes) : 0,
+      failures: Number.isFinite(Number(value.failures)) ? Number(value.failures) : 0,
+      consecutiveFailures: Number.isFinite(Number(value.consecutiveFailures)) ? Number(value.consecutiveFailures) : 0,
+      score: Number.isFinite(Number(value.score)) ? Number(value.score) : 0,
+      lastOutcome: String(value.lastOutcome || ""),
+      lastOutcomeReason: String(value.lastOutcomeReason || ""),
+      lastUpdatedAt: Number.isFinite(Number(value.lastUpdatedAt)) ? Number(value.lastUpdatedAt) : now
+    };
+  }
+
+  function calculateSourceMemoryScore(score) {
+    return Number.isFinite(Number(score)) ? Number(score) : 0;
+  }
+
+  function clampSourceScore(score) {
+    const next = Math.round(Number.isFinite(Number(score)) ? Number(score) : 0);
+    return Math.max(-12, Math.min(20, next));
+  }
+
+  function normalizeSourceMemoryForDomain(raw) {
+    const now = Date.now();
+    const value = raw && typeof raw === "object" ? raw : {};
+    const lastUpdatedAt = Number.isFinite(Number(value.lastUpdatedAt)) ? Number(value.lastUpdatedAt) : 0;
+    const rawSources = value.sources && typeof value.sources === "object" ? value.sources : value;
+    const sources = {};
+
+    DOMAIN_SOURCE_MEMORY_SOURCE_TYPES.forEach((sourceType) => {
+      sources[sourceType] = normalizeSourceMemorySnapshot(rawSources[sourceType]);
+    });
+
+    const base = {
+      v: SOURCE_MEMORY_SCHEMA_VERSION,
+      sources,
+      preferredSourceType: normalizeSourceType(value.preferredSourceType),
+      preferredUntilMs: Number.isFinite(Number(value.preferredUntilMs)) ? Number(value.preferredUntilMs) : 0,
+      preferredFailureCount: Number.isFinite(Number(value.preferredFailureCount)) ? Number(value.preferredFailureCount) : 0,
+      lastUpdatedAt
+    };
+
+    if (now - base.lastUpdatedAt > DOMAIN_SOURCE_MEMORY_EXPIRY_MS) {
+      return {
+        v: SOURCE_MEMORY_SCHEMA_VERSION,
+        sources: {
+          "media-html": emptySourceMemorySnapshot(),
+          "tab-capture": emptySourceMemorySnapshot()
+        },
+        preferredSourceType: "",
+        preferredUntilMs: 0,
+        preferredFailureCount: 0,
+        lastUpdatedAt: now
+      };
+    }
+
+    return base;
+  }
+
+  function normalizeDomainSourceMemory(raw) {
+    const now = Date.now();
+    const input = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const cleaned = {};
+
+    Object.keys(input).forEach((domain) => {
+      const normalizedDomain = normalizeDomain(domain);
+      if (!normalizedDomain) return;
+      cleaned[normalizedDomain] = normalizeSourceMemoryForDomain(input[domain]);
+    });
+
+    return cleaned;
+  }
+
+  function sourceMemoryOutcomeScoreDelta(outcome) {
+    const normalizedOutcome = String(outcome || "").toLowerCase();
+    if (normalizedOutcome === "success") return DOMAIN_SOURCE_MEMORY_SCORE_SUCCESS;
+    if (normalizedOutcome === "tab-capture-no-signal" || normalizedOutcome === "no-signal") return DOMAIN_SOURCE_MEMORY_SCORE_NO_SIGNAL;
+    if (normalizedOutcome === "media-no-detect" || normalizedOutcome === "no-media") return DOMAIN_SOURCE_MEMORY_SCORE_NO_MEDIA;
+    if (normalizedOutcome === "start-failed" || normalizedOutcome === "tab-capture-start-failed") return DOMAIN_SOURCE_MEMORY_SCORE_START_FAILED;
+    return DOMAIN_SOURCE_MEMORY_SCORE_UNKNOWN_FAILURE;
+  }
+
+  function clampSourceMemoryAttempt(value) {
+    if (!Number.isFinite(Number(value))) return 0;
+    return Math.max(0, Math.floor(Number(value)));
+  }
+
+  function sourceMemoryOutcomeIsSuccess(outcome) {
+    return String(outcome || "").toLowerCase() === "success";
+  }
+
+  function isFreshSourceFailure(sourceState, now) {
+    if (!sourceState) return false;
+    const lastOutcome = String(sourceState.lastOutcome || "").toLowerCase();
+    if (lastOutcome === "success") return false;
+    if (!Number.isFinite(Number(sourceState.lastUpdatedAt))) return false;
+    return (now - Number(sourceState.lastUpdatedAt)) <= DOMAIN_SOURCE_MEMORY_LOCK_TTL_MS;
+  }
 
   const DEFAULT_SETTINGS = {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
@@ -97,6 +229,7 @@
     autoDomains: [],
     excludedDomains: [],
     domainProfiles: {},
+    domainSourceMemory: {},
     platformProfilesEnabled: true,
     showAdvancedControls: false,
     limiterEnabled: true,
@@ -183,7 +316,8 @@
       schemaVersion: SETTINGS_SCHEMA_VERSION,
       autoDomains: uniqueDomains(stored.autoDomains || DEFAULT_SETTINGS.autoDomains),
       excludedDomains: uniqueDomains(stored.excludedDomains || DEFAULT_SETTINGS.excludedDomains),
-      domainProfiles: normalizeDomainProfiles(stored.domainProfiles || DEFAULT_SETTINGS.domainProfiles)
+      domainProfiles: normalizeDomainProfiles(stored.domainProfiles || DEFAULT_SETTINGS.domainProfiles),
+      domainSourceMemory: normalizeDomainSourceMemory(stored.domainSourceMemory || DEFAULT_SETTINGS.domainSourceMemory)
     };
 
     merged.activeProfile = normalizeProfileId(merged.activeProfile);
@@ -232,6 +366,189 @@
     return merged;
   }
 
+  function getDomainSourceMemory(settings, domain) {
+    const normalized = normalizeSettings(settings || {});
+    const normalizedDomain = normalizeDomain(domain);
+    if (!normalizedDomain) return null;
+    return normalized.domainSourceMemory && normalized.domainSourceMemory[normalizedDomain] ? normalized.domainSourceMemory[normalizedDomain] : null;
+  }
+
+  function isFailureSourceMemoryOutcome(outcome) {
+    return String(outcome || "").toLowerCase() !== "success";
+  }
+
+  function shouldIgnoreLockedPreferredSource(domainEntry, now) {
+    if (!domainEntry || !domainEntry.preferredSourceType) return false;
+    const preferredSourceType = normalizeSourceType(domainEntry.preferredSourceType);
+    if (!preferredSourceType) return false;
+    const sourceState = domainEntry.sources && domainEntry.sources[preferredSourceType];
+    if (!sourceState) return false;
+    if (isFreshSourceFailure(sourceState, now)) return true;
+    if (!isFailureSourceMemoryOutcome(sourceState.lastOutcome)) return false;
+    const lockedFailureCount = clampSourceMemoryAttempt(Math.max(
+      Number(sourceState.consecutiveFailures),
+      Number(domainEntry.preferredFailureCount)
+    ));
+    if (lockedFailureCount < DOMAIN_SOURCE_MEMORY_MAX_PREFERENCE_FAILURES) return false;
+    if (!Number.isFinite(Number(sourceState.lastUpdatedAt))) return false;
+    return now - Number(sourceState.lastUpdatedAt) <= DOMAIN_SOURCE_MEMORY_LOCK_TTL_MS;
+  }
+
+  function pickPreferredSourceFromDomainMemory(domainEntry) {
+    if (!domainEntry || !domainEntry.sources) return "";
+
+    const now = Date.now();
+    const candidateEntries = [];
+
+    if (domainEntry.preferredSourceType && now <= Number(domainEntry.preferredUntilMs || 0)) {
+      const preferredSourceType = normalizeSourceType(domainEntry.preferredSourceType);
+      const preferredSourceState = domainEntry.sources && domainEntry.sources[preferredSourceType];
+      const preferredScore = calculateSourceMemoryScore(preferredSourceState && preferredSourceState.score);
+      if (preferredSourceType && preferredScore >= DOMAIN_SOURCE_MEMORY_MIN_SCORE_TO_PREFER && !shouldIgnoreLockedPreferredSource(domainEntry, now)) {
+        return preferredSourceType;
+      }
+    }
+
+    for (const sourceType of DOMAIN_SOURCE_MEMORY_SOURCE_TYPES) {
+      const sourceState = domainEntry.sources[sourceType] || {};
+      if (isFreshSourceFailure(sourceState, now)) {
+        continue;
+      }
+      const score = calculateSourceMemoryScore(sourceState.score);
+      const attempts = clampSourceMemoryAttempt(sourceState.attempts);
+      candidateEntries.push({ sourceType, score, attempts });
+    }
+
+    const candidates = candidateEntries
+      .filter((entry) => entry.attempts >= DOMAIN_SOURCE_MEMORY_MIN_ATTEMPTS_TO_CONSIDER)
+      .filter((entry) => entry.score >= DOMAIN_SOURCE_MEMORY_MIN_SCORE_TO_PREFER);
+
+    if (candidates.length === 0) return "";
+
+    candidates.sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      if (right.attempts !== left.attempts) return right.attempts - left.attempts;
+      return left.sourceType.localeCompare(right.sourceType);
+    });
+
+    if (candidates.length < 2) return candidates[0].sourceType;
+    if (candidates[0].score === candidates[1].score && candidates[0].attempts === candidates[1].attempts) return "";
+    return candidates[0].sourceType;
+  }
+
+  function getFallbackSourceTypeForSingleRecentFailure(domainEntry) {
+    if (!domainEntry || !domainEntry.sources) return "";
+
+    const now = Date.now();
+    const failedSources = DOMAIN_SOURCE_MEMORY_SOURCE_TYPES
+      .map((sourceType) => {
+        const sourceState = normalizeSourceMemorySnapshot(domainEntry.sources[sourceType]);
+        return {
+          sourceType,
+          attempts: clampSourceMemoryAttempt(sourceState.attempts),
+          sourceState
+        };
+      })
+      .filter((entry) => {
+        if (entry.attempts !== 1) return false;
+        if (!isFailureSourceMemoryOutcome(entry.sourceState.lastOutcome)) return false;
+        if (!isFreshSourceFailure(entry.sourceState, now)) return false;
+        return true;
+      });
+
+    if (failedSources.length !== 1) return "";
+
+    const failed = failedSources[0];
+    const alternativeSourceType = failed.sourceType === DOMAIN_SOURCE_MEMORY_SOURCE_TYPES[0]
+      ? DOMAIN_SOURCE_MEMORY_SOURCE_TYPES[1]
+      : DOMAIN_SOURCE_MEMORY_SOURCE_TYPES[0];
+    const alternativeState = normalizeSourceMemorySnapshot(domainEntry.sources[alternativeSourceType]);
+
+    if (clampSourceMemoryAttempt(alternativeState.attempts) > 0) return "";
+    return alternativeSourceType;
+  }
+
+  function recordDomainSourceMemoryOutcome(settings, domain, sourceType, outcome, reason) {
+    const normalizedSourceType = normalizeSourceType(sourceType);
+    const normalizedDomain = normalizeDomain(domain);
+    const normalizedReason = String(reason || "").trim();
+    const normalizedSettings = normalizeSettings(settings || {});
+    const next = {
+      ...normalizedSettings.domainSourceMemory
+    };
+
+    if (!normalizedDomain || !normalizedSourceType) {
+      return next;
+    }
+
+    const now = Date.now();
+    const domainMemory = normalizeSourceMemoryForDomain(next[normalizedDomain]);
+    const sourceState = normalizeSourceMemorySnapshot(domainMemory.sources[normalizedSourceType]);
+    const delta = sourceMemoryOutcomeScoreDelta(outcome);
+    const isSuccess = sourceMemoryOutcomeIsSuccess(outcome);
+    const wasPreferred = normalizeSourceType(domainMemory.preferredSourceType) === normalizedSourceType;
+    const preferredUntilMs = Number.isFinite(Number(domainMemory.preferredUntilMs)) ? Number(domainMemory.preferredUntilMs) : 0;
+
+    const nextSourceState = {
+      ...sourceState,
+      attempts: clampSourceMemoryAttempt(sourceState.attempts + 1),
+      score: clampSourceScore(sourceState.score + delta),
+      lastOutcome: String(outcome || ""),
+      lastOutcomeReason: normalizedReason,
+      lastUpdatedAt: now
+    };
+    nextSourceState.failures = isSuccess
+      ? clampSourceMemoryAttempt(sourceState.failures)
+      : clampSourceMemoryAttempt(sourceState.failures + 1);
+    nextSourceState.successes = isSuccess
+      ? clampSourceMemoryAttempt(sourceState.successes + 1)
+      : clampSourceMemoryAttempt(sourceState.successes);
+    nextSourceState.consecutiveFailures = isSuccess
+      ? 0
+      : clampSourceMemoryAttempt(sourceState.consecutiveFailures + 1);
+
+    domainMemory.sources[normalizedSourceType] = nextSourceState;
+    domainMemory.lastUpdatedAt = now;
+    domainMemory.preferredFailureCount = wasPreferred && !isSuccess
+      ? Math.max(0, Number(domainMemory.preferredFailureCount || 0) + 1)
+      : 0;
+
+    if (isSuccess) {
+      domainMemory.preferredSourceType = normalizedSourceType;
+      domainMemory.preferredUntilMs = now + DOMAIN_SOURCE_MEMORY_LOCK_TTL_MS;
+      domainMemory.preferredFailureCount = 0;
+    } else if (domainMemory.preferredSourceType && now <= preferredUntilMs && wasPreferred) {
+      if (domainMemory.preferredFailureCount >= DOMAIN_SOURCE_MEMORY_MAX_PREFERENCE_FAILURES) {
+        domainMemory.preferredSourceType = "";
+        domainMemory.preferredUntilMs = 0;
+        domainMemory.preferredFailureCount = 0;
+      }
+    } else if (preferredUntilMs && preferredUntilMs < now) {
+      domainMemory.preferredSourceType = "";
+      domainMemory.preferredUntilMs = 0;
+      domainMemory.preferredFailureCount = 0;
+    }
+
+    const recommendedSource = pickPreferredSourceFromDomainMemory({
+      ...domainMemory,
+      preferredSourceType: ""
+    });
+    if (!domainMemory.preferredSourceType && recommendedSource) {
+      domainMemory.preferredSourceType = recommendedSource;
+      domainMemory.preferredUntilMs = now + DOMAIN_SOURCE_MEMORY_LOCK_TTL_MS;
+      domainMemory.preferredFailureCount = 0;
+    }
+
+    next[normalizedDomain] = {
+      ...domainMemory,
+      sources: {
+        ...domainMemory.sources
+      }
+    };
+
+    return next;
+  }
+
   function getProfile(profileId) {
     const normalizedProfileId = normalizeProfileId(profileId);
     return clone(PROFILES[normalizedProfileId] || PROFILES.normal);
@@ -254,6 +571,7 @@
         const next = normalizeSettings(
           hasCurrentSettings ? result[SETTINGS_KEY] : result[LEGACY_SETTINGS_KEY]
         );
+        memorySettings = clone(next);
 
         if (!hasCurrentSettings && hasLegacySettings) {
           chrome.storage.local.set({ [SETTINGS_KEY]: next });
@@ -329,6 +647,18 @@
 
   function getPreferredSourceTypeForDomain(domain) {
     const normalizedDomain = normalizeDomain(domain);
+    const normalizedSettings = normalizeSettings(memorySettings || {});
+    const domainMemory = getDomainSourceMemory(normalizedSettings, normalizedDomain);
+    const fallbackSourceFromSingleRecentFailure = domainMemory ? getFallbackSourceTypeForSingleRecentFailure(domainMemory) : "";
+    if (fallbackSourceFromSingleRecentFailure) {
+      return fallbackSourceFromSingleRecentFailure;
+    }
+
+    const sourceFromMemory = domainMemory ? pickPreferredSourceFromDomainMemory(domainMemory) : "";
+    if (sourceFromMemory) {
+      return sourceFromMemory;
+    }
+
     const match = PLATFORM_SOURCE_RULES.find((rule) => domainInList(normalizedDomain, rule.domains));
     return match ? match.sourceType : "media-html";
   }
@@ -406,10 +736,14 @@
     PROFILES: clone(PROFILES),
     PLATFORM_PROFILE_RULES: clone(PLATFORM_PROFILE_RULES),
     PLATFORM_SOURCE_RULES: clone(PLATFORM_SOURCE_RULES),
+    domainSourceMemory: clone(DEFAULT_SETTINGS.domainSourceMemory),
     getProfile,
     getRuntimeProfile,
     getRecommendedProfileForDomain,
     getPreferredSourceTypeForDomain,
+    getDomainSourceMemory,
+    pickPreferredSourceFromDomainMemory,
+    recordDomainSourceMemoryOutcome,
     getEffectiveProfileIdForDomain,
     getSettingsForDomain,
     applyGlobalTarget,

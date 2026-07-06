@@ -11,7 +11,7 @@
 
 Le protocole definit la forme des messages. La version testable utilise `browser_source_observed` pour transporter les sous-sources navigateur de l'extension vers le desktop via le bridge local, et `extension_log` pour ajouter certains evenements extension au journal local desktop.
 
-Le protocole annonce le niveau courant (`currentLevel`), le gain applique (`appliedGain`), la cible (`targetRmsDb`, `targetProfile`), la surface de controle (`controlSurface`), la controlabilite (`isControllable`) et l'etat de calibration navigateur (`calibrationState`, `measuredRmsDb`, `appliedGainDb`, `calibrationReason`). La decision reste portee par les apps : l'extension applique `BrowserGain` quand elle controle vraiment la source, le desktop bloque les corrections Windows concurrentes seulement quand ce `BrowserGain` est verrouille, et le fallback Windows reste possible pour `measuring`, `ObserveOnly`, `Unknown`, `skipped`, `no-signal` ou changement volontaire de cible.
+Le protocole annonce le niveau courant (`currentLevel`), le gain applique (`appliedGain`), la cible (`targetRmsDb`, `targetProfile`), la surface de controle (`controlSurface`), la controlabilite (`isControllable`) et l'etat de calibration navigateur (`calibrationState`, `measuredRmsDb`, `appliedGainDb`, `calibrationReason`, `captureSignalState`, `browserState`, `reason`, `recommendedAction`). La decision reste portee par les apps : l'extension applique `BrowserGain` quand elle controle vraiment la source, le desktop bloque les corrections Windows concurrentes seulement quand ce `BrowserGain` est verrouille, et le fallback Windows reste possible pour `measuring`, `ObserveOnly`, `Unknown`, `skipped`, `no-signal` ou changement volontaire de cible.
 
 ## Regle De Couverture
 
@@ -55,11 +55,17 @@ Une source peut etre disponible mais non controlable. Dans ce cas, l'UI et les l
   "calibrationState": "locked",
   "measuredRmsDb": -26.0,
   "appliedGainDb": 5.0,
-  "calibrationReason": "stable-window-complete"
+  "calibrationReason": "stable-window-complete",
+  "captureSignalState": "signal",
+  "browserState": "tab-capture-signal",
+  "reason": "stable-window-complete",
+  "recommendedAction": "BrowserGain actif via tabCapture ; la cible dB doit agir."
 }
 ```
 
-`targetRmsDb` et `targetProfile` sont optionnels. Ils indiquent la cible appliquee ou visee par l'extension quand elle est connue, notamment apres synchro avec `GET /global-target`. Les champs de calibration sont optionnels aussi, mais ils doivent rester coherents : `locked` avec `stable-window-complete` indique une source `BrowserGain` calibree apres une fenetre robuste ; `measuring` indique que le desktop peut encore utiliser le fallback Windows si une reaction rapide est necessaire ; `safety-attenuation` indique une attenuation temporaire de debut dangereux ; `insufficient-signal` ou `skipped` indique que le fallback Windows global peut redevenir acceptable.
+`targetRmsDb` et `targetProfile` sont optionnels. Ils indiquent la cible appliquee ou visee par l'extension quand elle est connue, notamment apres synchro avec `GET /global-target`. Les champs de calibration sont optionnels aussi, mais ils doivent rester coherents : `locked` avec `stable-window-complete` indique une source `BrowserGain` calibree apres une fenetre robuste ; `measuring` indique que le desktop peut encore utiliser le fallback Windows si une reaction rapide est necessaire ; `safety-attenuation` indique une attenuation temporaire de debut dangereux ; `insufficient-signal` ou `skipped` indique que le fallback Windows global peut redevenir acceptable. `captureSignalState` donne la raison bas niveau du signal navigateur (`needs-user-action`, `starting`, `signal`, `waiting-for-audio`, `no-signal`, `restricted`, `unsupported`, `unavailable`) pour aider l'UI a proposer une action claire sans promettre `BrowserGain`.
+
+`browserState` donne l'etat produit normalise : `media-html-starting`, `media-html-signal`, `media-html-no-signal`, `tab-capture-starting`, `tab-capture-signal`, `tab-capture-no-signal`, `observe-only` ou `desktop-fallback-available`. `reason` explique pourquoi la surface de controle est celle-la. `recommendedAction` donne l'action testeur a afficher localement : attendre, relancer Play, reproteger, utiliser le fallback Windows si le desktop est connecte, ou securiser via OBS.
 
 ## Confidentialite
 

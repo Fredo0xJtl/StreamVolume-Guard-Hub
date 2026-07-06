@@ -103,6 +103,39 @@ test("normalizes browser gain calibration metadata", () => {
   assert.equal(result.calibrationReason, "window-complete");
 });
 
+
+test("normalizes browser source recovery diagnostics", () => {
+  const result = protocol.normalizeBrowserSourceMessage(validMessage({
+    controlSurface: "ObserveOnly",
+    captureSignalState: "no-signal",
+    calibrationState: "skipped",
+    calibrationReason: "tab-capture-no-signal",
+    browserState: "tab-capture-no-signal",
+    reason: "tab-capture-no-signal",
+    recommendedAction: "Source observee seulement ; securiser dans OBS."
+  }));
+
+  assert.equal(result.controlSurface, "ObserveOnly");
+  assert.equal(result.isControllable, false);
+  assert.equal(result.captureSignalState, "no-signal");
+  assert.equal(result.calibrationState, "skipped");
+  assert.equal(result.calibrationReason, "tab-capture-no-signal");
+  assert.equal(result.browserState, "tab-capture-no-signal");
+  assert.equal(result.reason, "tab-capture-no-signal");
+  assert.equal(result.recommendedAction, "Source observee seulement ; securiser dans OBS.");
+});
+
+test("drops invalid browser source state without rejecting the source", () => {
+  const result = protocol.normalizeBrowserSourceMessage(validMessage({
+    browserState: "magic",
+    reason: "bad https://example.test/private",
+    recommendedAction: "open https://example.test/private"
+  }));
+
+  assert.equal(result.browserState, "");
+  assert.equal(result.reason, "bad [redacted-url]");
+  assert.equal(result.recommendedAction, "open [redacted-url]");
+});
 test("normalizes a desktop global target state", () => {
   const result = protocol.normalizeGlobalTargetState({
     type: "global_target_state",

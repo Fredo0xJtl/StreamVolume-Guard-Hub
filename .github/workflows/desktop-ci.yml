@@ -1,4 +1,6 @@
 name: hub-ci
+permissions:
+  contents: write
 
 on:
   pull_request:
@@ -11,6 +13,8 @@ jobs:
   build:
     name: Build and test hybrid project
     runs-on: windows-latest
+    env:
+      PACKAGE_VERSION: 0.1.38
 
     steps:
       - name: Checkout
@@ -35,6 +39,12 @@ jobs:
       - name: Check extension bridge client syntax
         run: node --check "apps/browser-extension/bridge/client.js"
 
+      - name: Check browser gain calibration syntax
+        run: node --check "apps/browser-extension/audio/browser-gain-calibration.js"
+
+      - name: Check browser normalizer syntax
+        run: node --check "apps/browser-extension/audio/normalizer.js"
+
       - name: Check extension background syntax
         run: node --check "apps/browser-extension/background.js"
 
@@ -49,3 +59,36 @@ jobs:
 
       - name: Build desktop solution
         run: dotnet build "apps/desktop/StreamVolumeGuard.Desktop.sln" --configuration Release --no-restore -nr:false
+
+      - name: Generate tester package
+        run: powershell -ExecutionPolicy Bypass -File "tools/package-tester.ps1" -Version "${{ env.PACKAGE_VERSION }}"
+
+      - name: Create and push build tag
+        if: github.event_name == 'push'
+        run: |
+          $version = "${{ env.PACKAGE_VERSION }}"
+          $runId = "${{ github.run_id }}"
+          $runAttempt = "${{ github.run_attempt }}"
+          $tag = "v{0}-build-r{1}-a{2}" -f $version, $runId, $runAttempt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          $remoteTag = git ls-remote --exit-code --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Tag already exists remotely: $tag"
+            exit 0
+          }
+
+          $sha = $env:GITHUB_SHA
+          $message = "Build {0} for commit {1}" -f $tag, $sha
+          git tag -a $tag -m $message
+          git push origin $tag
+
+      - name: Upload tester package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamVolumeGuardHub-Tester
+          path: |
+            artifacts/tester/StreamVolumeGuardHub-Tester-v${{ env.PACKAGE_VERSION }}.zip
+            artifacts/tester/StreamVolumeGuardHub-Tester-v${{ env.PACKAGE_VERSION }}.zip.sha256.txt

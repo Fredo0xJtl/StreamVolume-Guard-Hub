@@ -77,8 +77,11 @@ Les logs extension envoyés au desktop restent volontairement limités : synchro
 ## Limites Actuelles
 
 - Les onglets ne sont pas toujours séparables par Windows ; l'extension apporte le détail navigateur quand elle peut.
-- `BrowserGain` est possible quand Web Audio ou `tabCapture` donne un signal exploitable.
-- TikTok et certains lecteurs dynamiques peuvent devenir `ObserveOnly` si la capture ne fournit pas de signal utilisable.
+- `BrowserGain` est possible quand `tabCapture` Chromium ou le fallback `media-html` donne un signal exploitable.
+- Sur Chrome, Brave et Edge, `media-html` est tente en premier apres le clic `Proteger l'onglet actif`, pour retrouver le comportement stable de l'ancienne extension sur les lecteurs web accessibles.
+- `tabCapture` devient un upgrade generique si `media-html` reste muet alors que l'onglet est audible. Si le navigateur ne supporte pas `tabCapture`, le Hub doit afficher `unsupported` et utiliser le fallback Windows/OBS seulement quand le controle direct est impossible.
+- Si `media-html` ne trouve aucun media apres la courte phase de detection, l'extension republie un statut de fallback avec `tabAudible` / `tabActive`. Cela evite de confondre une cible dB non appliquee avec un vrai `BrowserGain`.
+- Les etats `needs-user-action`, `restricted`, `unsupported`, `no-signal` et `skipped` sont transmis au desktop via `captureSignalState` et la raison de calibration pour que le Hub propose rechargement, reprotection, fallback Windows ou OBS au lieu de promettre `BrowserGain`.
 - Les builds Firefox, Firefox Android et Safari sont hérités de l'ancien projet extension ; ils ne sont pas la priorité de la V1 hybride Windows.
 - OBS reste une vérification visuelle manuelle dans la V1 hybride.
 
@@ -148,5 +151,7 @@ node tools/package-release.js
 ```
 
 Ils génèrent `dist/` et `release-assets/`. Ces dossiers sont générés et ne doivent pas devenir la source de vérité du repo hybride. Pour la V1 actuelle, la priorité reste le packaging testeur Windows du desktop + extension locale, pas une release publique multi-navigateurs.
+
+Pour publier le Hub, utiliser le script racine `tools/package-tester.ps1`. Le script extension ci-dessus reste historique et doit recevoir une version explicite si une archive extension séparée est vraiment voulue.
 
 Les notes de release historiques restent dans `store/` pour archive. L'ancien README public extension est conservé dans `README.legacy.md`.

@@ -31,24 +31,30 @@ isControllable: true / false
 - Pas de patch moteur cible du type `if TikTok`, `if Chrome`, `if Spotify`.
 - Desktop, extension, protocole et bridge restent separes.
 - Ne pas creer de release GitHub ni de tag sans demande explicite.
+- Ne pas soumettre au Microsoft Store sans demande explicite.
 - Ne pas modifier les dossiers generes : `bin/`, `obj/`, `dist/`, `build/`, `out/`, `release-assets/`, `release/`, `releases/`, `graphify-out/`, `.graphify/`, `node_modules/`.
 - Toute implementation qui change le comportement, les tests, les docs, GitHub, le packaging ou les limites doit mettre a jour `CHANGELOG.md`.
 - Toute implementation qui change l'ordre de suite doit mettre a jour ce fichier.
 
 ## Etat Courant Des Paquets
 
-| Paquet | Sujet | Etat 2026-07-02 | Suite reelle |
+| Paquet | Sujet | Etat 2026-07-04 | Suite reelle |
 | --- | --- | --- | --- |
 | 0 | Audit et source de verite | Fait | Refaire seulement apres interruption ou gros doute. |
 | 1 | Bridge local desktop | Fait/durci/testable | Reste : test port occupe et verification manuelle health/POST. |
-| 2 | Extension navigateur -> bridge | Fait/testable | Verifier en reels sites, pas reimplementer. |
+| 2 | Extension navigateur -> bridge | Fait/testable | YouTube direct OK, TikTok/Spotify Web fallback no-media garde maintenant l'etat actif ; `0.1.27` restaure le gain direct historique en mode extension seule, autorise l'upgrade generique `tabCapture` standalone quand `media-html` ne trouve aucun media controlable sur un onglet audible, separe `captureFallbackReason` de `mediaHtmlFallbackReason`, et expose `browserState` / `reason` / `recommendedAction` ; la calibration `BrowserGain` robuste reste reservee au bridge desktop connecte ; retest reel requis. |
 | 3 | UI melangeur intelligent | Fait/testable | Ajuster apres retours testeur. |
 | 4 | Anti-conflit BrowserGain / WindowsSessionVolume | Fait minimal/testable | Verifier avec vrais navigateurs et plusieurs onglets. |
 | 5 | Normalisation stable | Moteur present/teste | Valider a l'oreille sur vraies sources, ajuster si besoin. |
-| 6 | Panic, exclusions, reglages | Fait/testable | Panic, logs, Auto, exclusions et cible globale persistent. Reste calibration OBS mieux guidee. |
-| 7 | Tests reels multi-sources | Prochaine priorite | YouTube, TikTok, Spotify Web, Discord, VLC, OBS, combos. |
+| 6 | Panic, exclusions, reglages | Fait/testable | Panic, logs, Auto, exclusions et cible globale persistent. OBS safety est traite dans un paquet dedie plus tard. |
+| 6bis | Sortie globale lecture seule | Fait/testable | Verifier en reel que RMS/pic/etat suivent le mix final et que le volume master Windows ne bouge jamais. |
+| 6ter | Coverage Dashboard | Fait/testable | Verifier que `Couverture`, `Action couverture` et le rapport `Copier logs` classent les sources en Direct/Fallback/Action/Limite/Inconnu sans double compter le parent navigateur. |
+| 6quater | Source inconnue, Stream Safe, Test guide, OBS guide | Fait/testable | `global_output.unknown_active`, `Stream Safe`, `guided_test.*` et `obs.guide.opened` sont presents. Verifier en reel avant stabilisation. |
+| 7 | Tests reels multi-sources | En cours | YouTube et TikTok valides en reel ; retester Spotify Web apres correction `0.1.27` avec `site=open.spotify.com`, `enabled=true`, `browserState`, `reason`, `recommendedAction`, `captureFallbackReason`, `mediaHtmlFallbackReason`, `skippedAlreadyProcessed`, `mediaDetected/mediaProcessed`, cible dB directe en standalone si `mediaProcessed>0`, ou upgrade generique `tabCapture` si `media-html` reste a 0/0 sur un onglet audible ; puis desktop connecte, Discord, VLC, OBS et combos. |
 | 8 | Packaging testeur Windows | Fait en alpha locale | Reste : valider le zip depuis un dossier propre, puis publier seulement sur demande explicite. |
-| 9 | Stabilisation V1 | Pas fait | Pass final apres tests reels et packaging. |
+| 9 | Stabilisation V1 | Pas fait | Pass final apres tests reels et packaging propre. |
+| 10 | OBS Stream Safety Setup | Fait en guide initial | Doc et bouton `Guide OBS` presents. Reste validation reelle OBS avec meters visibles. |
+| 11 | Microsoft Store readiness | Pas fait | Apres stabilisation V1 et OBS safety : preparer une beta publique Store sans publier. |
 
 ## Commandes Automatiques De Base
 
@@ -63,9 +69,14 @@ Lancer :
 ```powershell
 node "packages/protocol/tests/protocol.test.js"
 node "apps/browser-extension/tests/unit.test.js"
+node --check "apps/browser-extension/audio/browser-gain-calibration.js"
+node --check "apps/browser-extension/audio/normalizer.js"
 node --check "apps/browser-extension/bridge/client.js"
 node --check "apps/browser-extension/background.js"
 node --check "apps/browser-extension/content.js"
+node --check "apps/browser-extension/offscreen/offscreen.js"
+node --check "apps/browser-extension/popup/popup.js"
+node --check "apps/browser-extension/options/options.js"
 dotnet run --project "apps/desktop/tests/StreamVolumeGuard.Tests/StreamVolumeGuard.Tests.csproj"
 dotnet build "apps/desktop/StreamVolumeGuard.Desktop.sln" -nr:false
 ```
@@ -125,7 +136,7 @@ Travaille dans D:\Codex\StreamVolume Guard Hybride.
 
 Objectif : passer de base hybride testable a V1 testable en conditions reelles.
 
-Ne reimplemente pas le bridge, l'envoi extension, l'UI de classification, l'anti-conflit minimal ou la config Auto/exclusions/token bridge : ils existent deja en version testable. Commence par verifier l'etat reel puis lance les tests reels source par source.
+Ne reimplemente pas le bridge, l'envoi extension, l'UI de classification, l'anti-conflit minimal, la config Auto/exclusions/token bridge ou la sortie globale lecture seule : ils existent deja en version testable. Commence par verifier l'etat reel puis lance les tests reels source par source.
 
 Priorite : YouTube, TikTok, Spotify Web/Deezer Web, Discord, VLC, OBS, puis combinaisons.
 
@@ -138,6 +149,7 @@ Pour chaque source, relever :
 - status ;
 - isControllable ;
 - logs ;
+- sortie globale : etat, RMS, pic recent, peripherique, et absence de mouvement du volume master ;
 - comportement observation/Auto/Panic/exclusion si pertinent.
 
 Apres les tests, mettre a jour docs/tester-checklist.md, docs/product-next-plan.md, docs/implementation-prompts.md et CHANGELOG.md selon les resultats.
@@ -309,6 +321,66 @@ Verifier d'abord ce qui existe deja, puis corriger seulement les manques confirm
 
 Validation : tests desktop + redemarrage app + verification `%LOCALAPPDATA%\StreamVolumeGuard\config.json`.
 
+## Paquet 6bis - Sortie Globale Lecture Seule
+
+Statut : fait/testable.
+
+Deja present :
+
+- monitor desktop `GlobalOutputMonitor` via NAudio loopback sur la sortie Windows par defaut ;
+- bloc UI `Sortie globale` avec etat, RMS, pic recent, peripherique et message d'erreur si capture indisponible ;
+- logs `global_output.monitor.started`, `global_output.monitor.stopped`, `global_output.level`, `global_output.risky`, `global_output.silent`, `global_output.error` ;
+- throttling de `global_output.level` pour eviter le spam ;
+- rapport lisible avec section `Sortie globale` ;
+- aucun controle du volume master Windows, aucun audio brut dans les logs.
+
+Si repris, objectif : corriger seulement les bugs observes en test reel.
+
+```text
+Verifie le Global Output Monitor existant sans le transformer en compresseur.
+
+Conserver :
+- lecture seule ;
+- pas de volume master modifie ;
+- pas d'audio brut, samples ou buffers dans les logs ;
+- app fonctionnelle si loopback indisponible ;
+- logs globaux utiles mais throttles.
+
+Tester avec toutes les sources en pause, puis YouTube/TikTok/Spotify Web/VLC/Discord un par un.
+```
+
+Validation : tests desktop + build desktop + test manuel du bloc `Sortie globale`.
+
+## Paquet 6quater - Source Inconnue, Stream Safe, Test Guide Et OBS Guide
+
+Statut : fait/testable.
+
+Deja present :
+
+- detection `global_output.unknown_active` quand la sortie globale est active sans source connue active ;
+- resolution `global_output.unknown_active.resolved` quand une source explique a nouveau le signal ou quand le mix retombe ;
+- toggle `Stream Safe` persistant qui active Auto et revient a la cible Standard ;
+- boutons `Demarrer guide` / `Etape suivante` avec logs `guided_test.started`, `guided_test.step`, `guided_test.completed` ;
+- bouton `Guide OBS` avec rappel Application Audio Capture, Compressor et Limiter ;
+- libelles WPF raccordes au `DesktopTextCatalog`.
+
+Si repris, objectif : corriger seulement les bugs observes en test reel. Ne transforme pas `Sortie globale` en controle master et ne promets pas de lecture automatique OBS.
+
+```text
+Verifie le paquet 6quater existant.
+
+Tester :
+- lancer l'app ;
+- cocher Stream Safe ;
+- verifier Auto actif + cible Standard ;
+- cliquer Demarrer guide puis Etape suivante ;
+- ouvrir Guide OBS ;
+- creer volontairement un son non explique si possible et verifier global_output.unknown_active ;
+- copier logs et verifier que les evenements sont lisibles.
+```
+
+Validation : tests desktop + build desktop + test manuel rapide UI/logs.
+
 ## Paquet 7 - Tests Reels Multi-Sources
 
 Statut : prochaine priorite.
@@ -316,7 +388,7 @@ Statut : prochaine priorite.
 ```text
 Travaille dans D:\Codex\StreamVolume Guard Hybride.
 
-Prepare et execute une campagne de tests reels guidee.
+Prepare et execute une campagne de tests reels guidee avec le bouton `Demarrer guide`.
 
 Sources a tester une par une :
 1. YouTube navigateur.
@@ -330,11 +402,20 @@ Sources a tester une par une :
 9. Navigateur + app Windows.
 
 Pour chaque source :
-- cliquer Marquer etape si disponible ;
+- utiliser `Demarrer guide` puis `Etape suivante`, ou `Marquer etape` si tu fais une variante manuelle ;
 - mettre Play ;
-- attendre 10 a 15 secondes ;
+- attendre 15 a 20 secondes pour les sources navigateur, sauf si un `no-signal` explicite arrive avant ;
 - noter detection, origin, controlSurface, status, isControllable ;
-- noter si la sous-source navigateur est `media-html` ou `tab-capture` quand c'est visible dans les logs ;
+- noter si la sous-source navigateur est `media-html` ou un upgrade generique `tab-capture` quand c'est visible dans les logs ; en mode extension seule, cet upgrade peut partir si l'onglet est audible et que le chemin HTML reste muet, mais il doit rester generique et honnete ;
+- noter `browserState`, `reason`, `recommendedAction`, `captureSignalState`, `fallbackRecommended` et `fallbackReason` si une capture `tab-capture` ne fournit pas de signal Web Audio ;
+- noter `needs-user-action`, `restricted` ou `unsupported` si `tabCapture` ne peut pas demarrer ;
+- noter aussi `mediaHtmlFallbackReason=no-media-element-detected` ou `no-controllable-media-detected` en mode extension seule si `media-html` est actif mais ne controle aucun media ; verifier `tabAudible` / `tabActive` et l'eventuelle bascule generique `tab-capture` meme sans desktop si l'onglet est audible ;
+- noter `skippedAlreadyProcessed` si `media-html` detecte un lecteur mais reste a `mediaProcessed=0`, afin de separer un marqueur `processed` orphelin d'une vraie limite de controle ;
+- verifier apres changement de cible dB que l'onglet reste `enabled=true` sauf Stop utilisateur ou exclusion ;
+- noter l'etat `Sortie globale`, `rmsDb`, `peakDb` / pic recent, et verifier que le volume master Windows ne bouge pas ;
+- noter si `global_output.unknown_active` apparait et identifier la source Windows/OBS/systeme probable ;
+- tester `Stream Safe` : Auto doit etre actif et la cible doit revenir a Standard ;
+- si la source reste `ObserveOnly`, `Unknown`, `skipped` ou `no-signal`, verifier que le desktop affiche une `Raison` et une `Action` claire : recharger, reproteger, fallback Windows ou OBS ;
 - copier logs recents ;
 - noter si ObserveOnly ou Unknown est honnete et comprehensible.
 
@@ -345,7 +426,7 @@ Validation : `docs/tester-checklist.md` renseignee/ajustee + eventuels bugs ou t
 
 ## Paquet 8 - Packaging Testeur Windows
 
-Statut : fait en alpha locale, a valider depuis un dossier propre.
+Statut : fait en alpha locale avec package self-contained et checksum, a valider depuis un dossier propre.
 
 ```text
 Prepare un packaging testeur Windows propre.
@@ -355,15 +436,21 @@ Objectif : un testeur non technique ne doit pas cliquer sur le `.sln`.
 A fournir :
 - dossier `artifacts/tester` ou equivalent ;
 - zip `StreamVolumeGuardHub-Tester-v0.1.0-alpha.1.zip` ;
+- checksum SHA256 du zip ;
+- desktop publie self-contained `win-x64` ;
 - launcher clair ;
 - README testeur ;
 - checklist courte ;
+- licence racine incluse ;
 - emplacement logs et config ;
 - limites ObserveOnly / Unknown ;
+- limite Windows unsigned/SmartScreen documentee ;
+- rappeler que le zip GitHub non signe peut encore afficher SmartScreen ;
+- Microsoft Store garde comme chemin beta publique possible pour reduire la friction sans certificat payant ;
 - aucune release GitHub/tag sans demande explicite.
 ```
 
-Validation : build + lancement depuis package + zip present + pas de dossiers generes inutiles dans le package final.
+Validation : build + lancement depuis package + zip/checksum presents + pas de dossiers generes inutiles dans le package final.
 
 ## Paquet 9 - Stabilisation V1
 
@@ -377,7 +464,8 @@ Criteres :
 - bridge demarre ou echoue proprement ;
 - extension envoie au moins une vraie sous-source navigateur ;
 - sources Windows visibles ;
-- ObserveOnly / Unknown visibles ;
+- dashboard `Couverture` visible avec score et actions ;
+- ObserveOnly / Unknown visibles avec raison et action de recuperation ;
 - Auto desactivable ;
 - Panic fonctionne ;
 - exclusions persistent ;
@@ -389,3 +477,81 @@ Ne declare pas V1 stable si les limites navigateur ne sont pas visibles dans l'U
 ```
 
 Validation finale : commandes automatiques, campagne manuelle, package testeur, docs et changelog a jour.
+
+## Paquet 10 - OBS Stream Safety Setup
+
+Statut : fait en guide initial. A reprendre seulement si les tests reels OBS montrent que le guide actuel est insuffisant. Ce paquet passe avant Microsoft Store readiness seulement s'il faut completer la doc ou l'UI.
+
+Objectif : donner une vraie valeur streamer au Hub sans developper tout de suite un plugin OBS ou un VST. Le Hub reste le centre de controle Windows + navigateur ; OBS devient la securite finale du stream avec ses outils existants.
+
+```text
+Travaille dans D:\Codex\StreamVolume Guard Hybride.
+
+Ajoute le paquet OBS Stream Safety Setup.
+
+But produit :
+- expliquer clairement que StreamVolume Guard Hub organise, calibre et ajuste les sources visibles ;
+- expliquer que le Hub desktop seul n'est pas un compresseur studio global ;
+- guider l'utilisateur pour securiser le son final dans OBS ;
+- utiliser d'abord Application Audio Capture, Compressor et Limiter natifs OBS ;
+- garder plugin OBS et VST comme pistes futures, pas comme implementation immediate.
+
+A produire :
+- docs/obs-stream-safety-setup.md ;
+- liens depuis README.md ;
+- checklist testeur OBS alignee ;
+- product-next-plan.md aligne ;
+- .github/project/backlog.csv aligne ;
+- CHANGELOG.md mis a jour.
+
+La doc OBS doit couvrir :
+- quand utiliser le Hub ;
+- quand utiliser OBS ;
+- comment ajouter Application Audio Capture pour Brave/Chrome/Discord/Spotify/jeu quand OBS le permet ;
+- pourquoi desactiver Desktop Audio global si les apps sont capturees separement ;
+- ordre conseille des filtres ;
+- reglages de depart Compressor ;
+- reglages de depart Limiter ;
+- test manuel YouTube, TikTok, Spotify Web, Discord, VLC/jeu ;
+- limites honnetes : apps incompatibles, besoin possible d'un cable audio virtuel, extension navigateur separee.
+
+Ne pas :
+- developper un plugin OBS maintenant ;
+- developper un VST maintenant ;
+- promettre que le Hub seul compresse les pics internes ;
+- modifier les dossiers generes ;
+- creer une release, un tag ou une soumission Store.
+```
+
+Validation : docs alignees, backlog GitHub mis a jour, checklist testeur claire. Les tests code ne sont pas obligatoires si le paquet ne change que la documentation, mais relancer `rg`/diff pour verifier les liens et l'ordre.
+## Paquet 11 - Microsoft Store Readiness
+
+Statut : pas fait. A faire seulement apres tests reels, validation du zip alpha depuis un dossier propre, stabilisation V1 et OBS Stream Safety Setup.
+
+Objectif : preparer une beta publique Microsoft Store pour reduire la friction SmartScreen sans acheter tout de suite un certificat OV/EV.
+
+```text
+Travaille dans D:\Codex\StreamVolume Guard Hybride.
+
+Prepare la readiness Microsoft Store, sans publier ni soumettre l'app.
+
+A verifier/documenter :
+- type de package adapte : MSIX ou Win32 Store package ;
+- compatibilite WPF/.NET desktop avec Microsoft Store ;
+- comportement attendu du bridge local 127.0.0.1:47841 ;
+- logs locaux et privacy policy ;
+- absence de compte, cloud, telemetrie et audio upload ;
+- assets Store : nom, icones, screenshots, description courte/longue ;
+- lien support/GitHub et privacy policy publique ;
+- extension navigateur separee : Chrome/Brave/Edge ne seront pas installes automatiquement par le Microsoft Store ;
+- chemin futur extension : chargement manuel en alpha, puis Chrome Web Store / Edge Add-ons si necessaire ;
+- workflow CI/package sans tag, sans GitHub release et sans soumission Store automatique.
+
+Ne pas promettre que Microsoft Store resout tout :
+- la validation Store peut refuser ou demander des ajustements ;
+- l'extension reste un produit separe ;
+- le zip GitHub non signe peut encore afficher SmartScreen ;
+- le certificat OV/EV reste l'option pour une distribution hors Store vraiment propre.
+```
+
+Validation : docs Store readiness + backlog GitHub + checklist release + CHANGELOG. Pas de soumission Store sans demande explicite.

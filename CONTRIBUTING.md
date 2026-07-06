@@ -20,11 +20,14 @@
 ```powershell
 node "packages/protocol/tests/protocol.test.js"
 node "apps/browser-extension/tests/unit.test.js"
+node --check "apps/browser-extension/audio/browser-gain-calibration.js"
+node --check "apps/browser-extension/audio/normalizer.js"
 node --check "apps/browser-extension/bridge/client.js"
 node --check "apps/browser-extension/background.js"
 node --check "apps/browser-extension/content.js"
 dotnet run --project "apps/desktop/tests/StreamVolumeGuard.Tests/StreamVolumeGuard.Tests.csproj"
 dotnet build "apps/desktop/StreamVolumeGuard.Desktop.sln" -nr:false
+powershell -ExecutionPolicy Bypass -File "tools\package-tester.ps1"
 ```
 
 ## Pull Requests

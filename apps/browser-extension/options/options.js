@@ -2,6 +2,7 @@
   const WLG = root.StreamVolumeGuard;
   const Settings = WLG.Settings;
   const Capabilities = WLG.Capabilities;
+  const SourceState = WLG.SourceState;
 
   const elements = {
     form: document.getElementById("settingsForm"),
@@ -414,14 +415,74 @@
     return "unknown";
   }
 
-  function safeStatus(status) {
+  function cleanDiagnosticText(value) {
+    return value === undefined || value === null ? "" : String(value).slice(0, 120).trim();
+  }
+
+  function isTabCaptureFallbackReason(reason) {
+    if (SourceState && typeof SourceState.isTabCaptureFallbackReason === "function") {
+      return SourceState.isTabCaptureFallbackReason(reason);
+    }
+    return cleanDiagnosticText(reason).toLowerCase().includes("tab-capture");
+  }
+
+  function getCaptureFallbackReason(status) {
+    if (!status) return "";
+    const captureReason = cleanDiagnosticText(status.captureFallbackReason);
+    if (isTabCaptureFallbackReason(captureReason)) return captureReason;
+    const sourceReason = cleanDiagnosticText(status.reason);
+    if (isTabCaptureFallbackReason(sourceReason)) return sourceReason;
+    if (status.captureSignalState === "no-signal" && finiteNumber(status.captureRestartCount, 0) > 0) {
+      return "tab-capture-no-signal";
+    }
+    return status.sourceType === "tab-capture" ? captureReason : "";
+  }
+
+  function getMediaHtmlFallbackReasonForDiagnostic(status) {
+    if (!status || status.sourceType !== "media-html") return "";
+    const explicitReason = cleanDiagnosticText(status.mediaHtmlFallbackReason);
+    if (explicitReason && !isTabCaptureFallbackReason(explicitReason)) return explicitReason;
+    const captureReason = cleanDiagnosticText(status.captureFallbackReason);
+    if (captureReason && !isTabCaptureFallbackReason(captureReason)) return captureReason;
+    const sourceReason = cleanDiagnosticText(status.reason);
+    if (sourceReason && sourceReason !== "media-html-starting" && !isTabCaptureFallbackReason(sourceReason)) return sourceReason;
+    if (finiteNumber(status.mediaDetected, 0) < 1) return "no-media-element-detected";
+    if (finiteNumber(status.mediaProcessed, 0) < 1) return "no-controllable-media-detected";
+    return "";
+  }
+
+  function getDiagnosticLastError(status, desktopBridge) {
+    const message = status && (status.lastError || status.error) ? String(status.lastError || status.error).slice(0, 300) : "";
+    if (!message || (desktopBridge && desktopBridge.connected)) return message;
+    if (message.toLowerCase().includes("fallback desktop")) {
+      return "Capture d'onglet sans signal Web Audio exploitable. Source observee seulement en mode extension seule.";
+    }
+    return message;
+  }
+
+  function safeStatus(status, desktopBridge) {
     const source = status && typeof status === "object" ? status : {};
+    const desktopFallbackRecommended = Boolean(desktopBridge && desktopBridge.connected && source.captureFallbackRecommended);
+    const rawFallbackReason = cleanDiagnosticText(source.captureFallbackReason);
+    const rawCaptureFallbackReason = getCaptureFallbackReason(source);
+    const rawMediaHtmlFallbackReason = getMediaHtmlFallbackReasonForDiagnostic(source);
+    const classification = SourceState && SourceState.classifyBrowserStatus
+      ? SourceState.classifyBrowserStatus(source, { desktopBridgeConnected: Boolean(desktopBridge && desktopBridge.connected) })
+      : {};
+
     return {
       ok: source.ok !== false,
       installed: Boolean(source.installed),
       enabled: Boolean(source.enabled),
       mode: String(source.mode || ""),
       sourceType: String(source.sourceType || ""),
+      origin: classification.origin || "BrowserExtension",
+      browserState: classification.browserState || "",
+      controlSurface: classification.controlSurface || "Unknown",
+      status: classification.status || String(source.status || "Unknown"),
+      isControllable: Boolean(classification.isControllable),
+      reason: classification.reason || "",
+      recommendedAction: classification.recommendedAction || "",
       site: Settings.normalizeDomain(source.site || ""),
       activeProfile: String(source.activeProfile || ""),
       excluded: Boolean(source.excluded),
@@ -444,16 +505,40 @@
       captureSignalState: String(source.captureSignalState || ""),
       captureRestartCount: finiteNumber(source.captureRestartCount, 0),
       captureRestartDeferred: Boolean(source.captureRestartDeferred),
+      fallbackRecommended: desktopFallbackRecommended,
+      fallbackReason: desktopFallbackRecommended ? rawFallbackReason : "",
+      mediaHtmlFallbackReason: !desktopFallbackRecommended ? rawMediaHtmlFallbackReason : "",
+      captureFallbackReason: rawCaptureFallbackReason,
       tabAudible: Boolean(source.tabAudible),
       tabActive: Boolean(source.tabActive),
       riskLevel: String(source.riskLevel || "safe"),
       containedPeakCount: finiteNumber(source.containedPeakCount, 0),
-      lastError: String(source.lastError || source.error || "").slice(0, 300),
+      lastError: getDiagnosticLastError(source, desktopBridge),
       updatedAt: finiteNumber(source.updatedAt, 0)
     };
   }
 
-  function buildDiagnosticQuality(activeTab) {
+  async function getDesktopBridgeStatus() {
+    const BridgeClient = WLG.BridgeClient;
+    if (!BridgeClient || typeof BridgeClient.checkDesktopBridgeHealth !== "function") {
+      return {
+        connected: false,
+        mode: "standalone",
+        status: 0,
+        error: "bridge-client-unavailable"
+      };
+    }
+
+    const result = await BridgeClient.checkDesktopBridgeHealth();
+    return {
+      connected: Boolean(result && result.connected),
+      mode: result && result.mode ? result.mode : "standalone",
+      status: finiteNumber(result && result.status, 0),
+      error: result && result.error ? String(result.error).slice(0, 160) : ""
+    };
+  }
+
+  function buildDiagnosticQuality(activeTab, desktopBridge) {
     if (!activeTab.installed || activeTab.canInject === false) {
       return {
         complete: false,
@@ -475,6 +560,40 @@
         complete: false,
         reason: "normalization-disabled",
         nextStep: "Active la normalisation sur l'onglet, lance un media, attends 2 a 3 secondes, puis exporte a nouveau."
+      };
+    }
+
+    if (activeTab.browserState === "media-html-no-signal" && !(desktopBridge && desktopBridge.connected)) {
+      return {
+        complete: false,
+        reason: "standalone-media-html-unavailable",
+        nextStep: "Mode extension seule : media HTML non exploitable. Si l'onglet est audible, l'extension doit tenter tabCapture ; sinon lance l'app desktop pour le fallback Windows ou securise dans OBS."
+      };
+    }
+
+    if ((activeTab.browserState === "desktop-fallback-available" || activeTab.fallbackRecommended) && desktopBridge && desktopBridge.connected) {
+      return {
+        complete: true,
+        reason: "desktop-fallback-active",
+        nextStep: "Controle via Windows actif : la source est observee par l'extension, puis le desktop regle le volume Windows global du navigateur."
+      };
+    }
+
+    if (activeTab.reason === "tab-capture-no-signal" || activeTab.captureFallbackReason === "tab-capture-no-signal") {
+      return {
+        complete: false,
+        reason: "tab-capture-no-signal",
+        nextStep: desktopBridge && desktopBridge.connected
+          ? "Capture active mais signal Web Audio non mesurable. Laisse le desktop controler le volume Windows global du navigateur."
+          : "Capture active mais signal Web Audio non mesurable. Ouvre l'app desktop pour le fallback Windows global ou securise dans OBS."
+      };
+    }
+
+    if (activeTab.fallbackRecommended) {
+      return {
+        complete: false,
+        reason: activeTab.fallbackReason || "tab-capture-no-signal",
+        nextStep: "La source est visible mais pas controlable directement par l'extension. En mode hybride, laisse le desktop controler le volume Windows du navigateur."
       };
     }
 
@@ -506,7 +625,8 @@
     const status = await sendRuntimeMessage("WLG_GET_ACTIVE_STATUS");
     const manifest = chrome.runtime.getManifest ? chrome.runtime.getManifest() : {};
     const userAgent = root.navigator && root.navigator.userAgent ? root.navigator.userAgent : "";
-    const activeTab = safeStatus(status);
+    const desktopBridge = await getDesktopBridgeStatus();
+    const activeTab = safeStatus(status, desktopBridge);
 
     return {
       schemaVersion: 1,
@@ -532,7 +652,8 @@
         platformProfilesEnabled: Boolean(settings.platformProfilesEnabled)
       },
       activeTab,
-      diagnosticQuality: buildDiagnosticQuality(activeTab),
+      desktopBridge: desktopBridge,
+      diagnosticQuality: buildDiagnosticQuality(activeTab, desktopBridge),
       streamerDiagnostics: {
         browserFamily: detectBrowserFamily(userAgent),
         site: activeTab.site,
@@ -548,8 +669,16 @@
         captureTrackState: activeTab.captureTrackState,
         captureMuted: activeTab.captureMuted,
         captureSignalState: activeTab.captureSignalState,
+        browserState: activeTab.browserState,
+        controlSurface: activeTab.controlSurface,
+        isControllable: activeTab.isControllable,
+        reason: activeTab.reason,
+        recommendedAction: activeTab.recommendedAction,
         captureRestartCount: activeTab.captureRestartCount,
         captureRestartDeferred: activeTab.captureRestartDeferred,
+        fallbackRecommended: activeTab.fallbackRecommended,
+        fallbackReason: activeTab.fallbackReason,
+        mediaHtmlFallbackReason: activeTab.mediaHtmlFallbackReason,
         tabAudible: activeTab.tabAudible,
         tabActive: activeTab.tabActive,
         currentGainDb: activeTab.gainDb,
@@ -854,5 +983,10 @@
   fillProfiles();
   elements.stopTargetPreviewButton.disabled = true;
   render();
-  root.addEventListener("unload", stopTargetPreview);
+  root.addEventListener("pagehide", stopTargetPreview);
+  root.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      stopTargetPreview();
+    }
+  });
 })(globalThis);

@@ -7,8 +7,8 @@
     }
   };
 
-  const DEFAULT_MEASUREMENT_WINDOW_MS = 12000;
-  const DEFAULT_MIN_USABLE_SIGNAL_MS = 5000;
+  const DEFAULT_MEASUREMENT_WINDOW_MS = 18000;
+  const DEFAULT_MIN_USABLE_SIGNAL_MS = 8000;
   const DEFAULT_SILENCE_REARM_MS = 2500;
   const DEFAULT_SIGNAL_FLOOR_DB = -100;
   const DEFAULT_SAFETY_ATTENUATION_THRESHOLD_DB = 6;
@@ -136,7 +136,7 @@
 
     function recordMeasurementProgress(nowMs, hasSignal, rmsDb) {
       const elapsedMs = Math.max(0, nowMs - lastUpdateAtMs);
-      if (previousHadSignal) {
+      if (previousHadSignal && hasSignal) {
         usefulSignalMs += elapsedMs;
       }
       if (hasSignal) {

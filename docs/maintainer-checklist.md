@@ -8,9 +8,13 @@ Use this before pushing, opening a PR, or sharing a build.
 - [ ] Protocol tests pass.
 - [ ] Browser extension tests pass.
 - [ ] Browser extension syntax checks pass for bridge, background, and content scripts.
+- [ ] Browser extension syntax checks pass for `audio/browser-gain-calibration.js` and `audio/normalizer.js`.
 - [ ] Desktop tests pass.
 - [ ] Full desktop solution build passes.
-- [ ] `tools/package-tester.ps1` creates both the tester folder and alpha zip under `artifacts/tester/`.
+- [ ] `tools/package-tester.ps1` creates the tester folder, alpha zip, and SHA256 file under `artifacts/tester/`.
+- [ ] The tester desktop publish is self-contained `win-x64` and does not require a tester to install .NET.
+- [ ] The package includes the root `LICENSE`.
+- [ ] The release notes state whether the package is unsigned or signed.
 - [ ] README or docs updated if behavior changed.
 - [ ] `CHANGELOG.md` updated if behavior, UX, setup, or limitations changed.
 - [ ] Active docs do not point to stale prototype-folder commands.
@@ -21,8 +25,10 @@ Use this before pushing, opening a PR, or sharing a build.
 - [ ] Unified logs remain privacy-safe: no full URL, raw audio, browser history, token, Discord message, or OBS scene is written.
 - [ ] Anti-conflict behavior is covered: recent `BrowserGain` source skips matching `WindowsSessionVolume` auto correction.
 - [ ] Chromium-family browser alias behavior is covered: Brave/Chrome/Edge style process names do not cause double correction when `BrowserGain` is already active.
+- [ ] Browser fallback diagnostics are covered: `tab-capture-no-signal`, `no-media-element-detected`, and `no-controllable-media-detected` remain `ObserveOnly`/fallback cases, not fake `BrowserGain` control.
 - [ ] Desktop Auto one-shot behavior is covered: one correction per active source, `volume.auto_locked` for skipped follow-up corrections, reset after sustained silence or disappearance.
 - [ ] Global target changes are covered: desktop target changes rearm one-shot calibration, and live browser sources sync changed `/global-target` values.
+- [ ] Global Output Monitor stays read-only: it may log `global_output.*` RMS/peak/state metrics, can be disabled with `STREAMVOLUME_GUARD_DISABLE_GLOBAL_OUTPUT=1`, but must not change Windows master volume or write raw audio/samples.
 - [ ] No generated `bin/` or `obj/` files are intended for source control.
 - [ ] No generated `dist/`, `release-assets/`, `graphify-out/`, `build/`, `out/`, `release/`, or `releases/` files are intended for source control.
 - [ ] No local logs, diagnostics, or private machine paths are committed unless explicitly intended.
@@ -32,9 +38,14 @@ Use this before pushing, opening a PR, or sharing a build.
 ```powershell
 node "packages/protocol/tests/protocol.test.js"
 node "apps/browser-extension/tests/unit.test.js"
+node --check "apps/browser-extension/audio/browser-gain-calibration.js"
+node --check "apps/browser-extension/audio/normalizer.js"
 node --check "apps/browser-extension/bridge/client.js"
 node --check "apps/browser-extension/background.js"
 node --check "apps/browser-extension/content.js"
+node --check "apps/browser-extension/offscreen/offscreen.js"
+node --check "apps/browser-extension/popup/popup.js"
+node --check "apps/browser-extension/options/options.js"
 dotnet run --project "apps/desktop/tests/StreamVolumeGuard.Tests/StreamVolumeGuard.Tests.csproj"
 dotnet build "apps/desktop/StreamVolumeGuard.Desktop.sln" -nr:false
 powershell -ExecutionPolicy Bypass -File "tools\package-tester.ps1"

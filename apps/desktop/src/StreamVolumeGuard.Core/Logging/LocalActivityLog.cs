@@ -136,6 +136,12 @@ public sealed class LocalActivityLog
         AppendSources(builder, entries.Select(entry => entry.Fields));
         builder.AppendLine();
 
+        AppendCoverage(builder, entries.Select(entry => entry.Fields));
+        builder.AppendLine();
+
+        AppendGlobalOutput(builder, entries.Select(entry => entry.Fields));
+        builder.AppendLine();
+
         AppendCorrections(builder, entries);
         builder.AppendLine();
 
@@ -317,6 +323,104 @@ public sealed class LocalActivityLog
         }
     }
 
+    private static void AppendCoverage(StringBuilder builder, IEnumerable<IReadOnlyDictionary<string, string>> entries)
+    {
+        builder.AppendLine("## Couverture");
+        var materializedEntries = entries.ToList();
+        var summary = materializedEntries
+            .Reverse<IReadOnlyDictionary<string, string>>()
+            .FirstOrDefault(entry => EventEquals(entry, "coverage.summary.updated"));
+
+        if (summary is null || summary.Count == 0)
+        {
+            AppendInferredCoverage(builder, materializedEntries);
+            return;
+        }
+
+        var securable = PickValue(summary, "securable");
+        var total = PickValue(summary, "total");
+        builder.AppendLine($"- Score: {securable}/{total} sources securisables");
+        builder.AppendLine($"- Direct={PickValue(summary, "direct")} | Fallback={PickValue(summary, "fallback")} | Action={PickValue(summary, "needsAction")} | Limite={PickValue(summary, "limited")} | Inconnu={PickValue(summary, "unknown")}");
+
+        var sources = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fields in materializedEntries.Where(IsCoverageSourceEvent))
+        {
+            var display = PickValue(fields, "display", "siteName", "browserProcess", "process", "sourceId");
+            if (display != "inconnu")
+            {
+                sources[display] = fields;
+            }
+        }
+
+        if (sources.Count == 0)
+        {
+            builder.AppendLine("- Aucune source de couverture detaillee.");
+            return;
+        }
+
+        foreach (var source in sources.OrderBy(source => source.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var fields = source.Value;
+            builder.AppendLine($"- {source.Key}: {PickValue(fields, "origin")} / {PickValue(fields, "controlSurface")} / {PickValue(fields, "coverageStatus")} / {PickValue(fields, "coverageAction")}");
+        }
+    }
+
+    private static void AppendInferredCoverage(
+        StringBuilder builder,
+        IEnumerable<IReadOnlyDictionary<string, string>> entries)
+    {
+        var sources = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fields in entries.Where(IsSourceObservationEvent))
+        {
+            var display = PickValue(fields, "display", "siteName", "browserProcess", "process", "sourceId");
+            var origin = PickValue(fields, "origin");
+            var controlSurface = PickValue(fields, "controlSurface");
+            if (display == "inconnu" || origin == "inconnu" || controlSurface == "inconnu")
+            {
+                continue;
+            }
+
+            sources[display] = fields;
+        }
+
+        if (sources.Count == 0)
+        {
+            builder.AppendLine("- Aucune couverture calculee dans cette session.");
+            return;
+        }
+
+        builder.AppendLine("- Couverture non journalisee : affichage deduit des sources visibles.");
+        foreach (var source in sources.OrderBy(source => source.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var fields = source.Value;
+            var action = PickValue(fields, "coverageAction", "recoveryAction", "reason");
+            builder.AppendLine($"- {source.Key}: {PickValue(fields, "origin")} / {PickValue(fields, "controlSurface")} / Non calculee / {action}");
+        }
+    }
+
+    private static void AppendGlobalOutput(StringBuilder builder, IEnumerable<IReadOnlyDictionary<string, string>> entries)
+    {
+        builder.AppendLine("## Sortie globale");
+        var latest = entries
+            .Reverse()
+            .FirstOrDefault(IsGlobalOutputEventWithState);
+
+        if (latest is null || latest.Count == 0)
+        {
+            builder.AppendLine("- Aucune mesure globale dans cette session.");
+            return;
+        }
+
+        var device = PickValue(latest, "device");
+        var state = PickValue(latest, "state");
+        var rms = PickValue(latest, "rmsDb");
+        var peak = PickValue(latest, "peakDb");
+        var recentPeak = PickValue(latest, "recentPeakDb");
+        var reason = PickValue(latest, "reason");
+
+        builder.AppendLine($"- {device}: {state} / rms={rms} / peak={peak} / recentPeak={recentPeak} / reason={reason}");
+    }
+
     private static void AppendAlerts(
         StringBuilder builder,
         IEnumerable<IReadOnlyDictionary<string, string>> entries,
@@ -334,6 +438,16 @@ public sealed class LocalActivityLog
         if (materializedEntries.Any(entry => string.Equals(PickValue(entry, "reason"), "safety-spike", StringComparison.OrdinalIgnoreCase)))
         {
             alerts.Add("Safety-spike detecte : verifier que le volume reste au-dessus du plancher manuel.");
+        }
+
+        if (materializedEntries.Any(entry => EventEquals(entry, "global_output.risky")))
+        {
+            alerts.Add("Sortie globale risquee : verifier le mix final avant live.");
+        }
+
+        if (materializedEntries.Any(entry => EventEquals(entry, "global_output.unknown_active")))
+        {
+            alerts.Add("Son global actif sans source connue active : verifier le melangeur Windows, OBS ou une application non detectee.");
         }
 
         if (materializedEntries.Any(entry => EventEquals(entry, "volume.auto_locked")))
@@ -382,6 +496,18 @@ public sealed class LocalActivityLog
         return false;
     }
 
+    private static bool IsCoverageSourceEvent(IReadOnlyDictionary<string, string> fields)
+    {
+        return PickValue(fields, "event").StartsWith("coverage.source.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSourceObservationEvent(IReadOnlyDictionary<string, string> fields)
+    {
+        return EventEquals(fields, "browser.source.received") ||
+            EventEquals(fields, "volume.auto") ||
+            EventEquals(fields, "volume.auto_locked");
+    }
+
     private static bool IsGlobalStateEvent(IReadOnlyDictionary<string, string> fields)
     {
         var eventName = PickValue(fields, "event");
@@ -389,6 +515,12 @@ public sealed class LocalActivityLog
             string.Equals(eventName, "tester.mark", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(eventName, "config.save", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(eventName, "target.changed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsGlobalOutputEventWithState(IReadOnlyDictionary<string, string> fields)
+    {
+        return PickValue(fields, "event").StartsWith("global_output.", StringComparison.OrdinalIgnoreCase) &&
+            HasValue(fields, "state");
     }
 
     private static bool IsObserveOnlyOrUnknown(IReadOnlyDictionary<string, string> fields)

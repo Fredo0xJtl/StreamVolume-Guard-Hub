@@ -10,6 +10,7 @@
   const Settings = WLG.Settings;
   const Normalizer = WLG.Normalizer;
   const Analyser = WLG.Analyser;
+  const SourceState = WLG.SourceState;
 
   const BYPASS_ATTR = "streamVolumeGuardBypass";
   const PROCESSED_ATTR = "streamVolumeGuardProcessed";
@@ -18,6 +19,8 @@
   const processingMedia = new Set();
   const SETTINGS_UPDATE_DEBOUNCE_MS = 1200;
   const BRIDGE_STATUS_DEBOUNCE_MS = 1000;
+  const MEDIA_HTML_SIGNAL_TIMEOUT_MS = 2500;
+  const MEDIA_HTML_SIGNAL_FLOOR_DB = -100;
 
   let settings = Settings.normalizeSettings();
   let observer = null;
@@ -25,7 +28,11 @@
   let settingsUpdateTimer = null;
   let pendingSettingsUpdate = null;
   let bridgeStatusTimer = null;
+  let mediaHtmlSignalWatchTimer = null;
   let lastSettingsJson = "";
+  let mediaHtmlSignalWatchStartedAt = Date.now();
+  let mediaHtmlLastUsableSignalAt = 0;
+  let mediaHtmlSignalShape = "";
 
   const state = {
     ok: true,
@@ -54,12 +61,16 @@
     measuredRmsDb: null,
     appliedGainDb: null,
     calibrationReason: "",
+    captureFallbackRecommended: false,
+    captureFallbackReason: "",
     lastError: "",
     updatedAt: Date.now()
   };
 
   function updateState(partial) {
     Object.assign(state, partial, { updatedAt: Date.now() });
+    refreshMediaHtmlSignalWatch();
+    scheduleMediaHtmlSignalWatchExpiry();
     publishLocalTestStatus();
     scheduleBrowserSourceStatus();
   }
@@ -77,19 +88,123 @@
     return Math.max(0, Math.min(1, Math.pow(10, number / 20)));
   }
 
+  function finiteDb(value) {
+    if (value === null || value === undefined) return Analyser.MIN_DB;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : Analyser.MIN_DB;
+  }
+
+  function getMediaHtmlSignalShape() {
+    return [
+      isEffectivelyEnabled() ? "on" : "off",
+      state.sourceType,
+      state.site,
+      Number(state.mediaDetected) || 0,
+      Number(state.mediaProcessed) || 0
+    ].join(":");
+  }
+
+  function hasUsableMediaHtmlSignal() {
+    return finiteDb(state.rmsDb) > MEDIA_HTML_SIGNAL_FLOOR_DB ||
+      finiteDb(state.outputRmsDb) > MEDIA_HTML_SIGNAL_FLOOR_DB ||
+      finiteDb(state.measuredRmsDb) > MEDIA_HTML_SIGNAL_FLOOR_DB;
+  }
+
+  function resetMediaHtmlSignalWatch() {
+    clearMediaHtmlSignalWatchTimer();
+    mediaHtmlSignalWatchStartedAt = Date.now();
+    mediaHtmlLastUsableSignalAt = 0;
+    mediaHtmlSignalShape = getMediaHtmlSignalShape();
+  }
+
+  function clearMediaHtmlSignalWatchTimer() {
+    if (!mediaHtmlSignalWatchTimer) return;
+    root.clearTimeout(mediaHtmlSignalWatchTimer);
+    mediaHtmlSignalWatchTimer = null;
+  }
+
+  function scheduleMediaHtmlSignalWatchExpiry() {
+    if (!isEffectivelyEnabled() || hasUsableMediaHtmlSignal() || isMediaHtmlSignalWatchExpired()) {
+      clearMediaHtmlSignalWatchTimer();
+      return;
+    }
+    if (mediaHtmlSignalWatchTimer) return;
+
+    mediaHtmlSignalWatchTimer = root.setTimeout(() => {
+      mediaHtmlSignalWatchTimer = null;
+      scanMedia();
+    }, MEDIA_HTML_SIGNAL_TIMEOUT_MS + 100);
+  }
+
+  function refreshMediaHtmlSignalWatch() {
+    const nextShape = getMediaHtmlSignalShape();
+    if (nextShape !== mediaHtmlSignalShape) {
+      resetMediaHtmlSignalWatch();
+    }
+
+    if (hasUsableMediaHtmlSignal()) {
+      mediaHtmlLastUsableSignalAt = Date.now();
+    }
+  }
+
+  function isMediaHtmlSignalWatchExpired() {
+    if (hasUsableMediaHtmlSignal()) return false;
+    if (mediaHtmlLastUsableSignalAt > 0) return false;
+    return Date.now() - mediaHtmlSignalWatchStartedAt >= MEDIA_HTML_SIGNAL_TIMEOUT_MS;
+  }
+
   function mapRiskToStatus(riskLevel) {
     if (state.excluded) return "Excluded";
-    if (!state.enabled) return "Unknown";
+    if (!isEffectivelyEnabled()) return "Unknown";
+    if (!isMediaHtmlPipelineReady()) return "Unknown";
+    if (getMediaHtmlFallbackReason()) return "Unknown";
     if (riskLevel === "risky" || riskLevel === "warning") return "Risky";
     return "Safe";
   }
 
+  function isMediaHtmlPipelineReady() {
+    return Number(state.mediaDetected) > 0 && Number(state.mediaProcessed) > 0;
+  }
+
+  function getMediaHtmlFallbackReason() {
+    if (!isEffectivelyEnabled()) return "";
+    if (Number(state.mediaDetected) < 1) return isMediaHtmlSignalWatchExpired() ? "no-media-element-detected" : "";
+    if (Number(state.mediaProcessed) < 1) return isMediaHtmlSignalWatchExpired() ? "no-controllable-media-detected" : "";
+    if (!hasUsableMediaHtmlSignal() && isMediaHtmlSignalWatchExpired()) return "media-html-no-usable-signal";
+    return "";
+  }
+
   function getBrowserControlSurface() {
-    return state.enabled && state.calibrationState !== "skipped" ? "BrowserGain" : "ObserveOnly";
+    return getBrowserClassification().controlSurface;
+  }
+
+  function getBrowserClassification(partial) {
+    const fallbackReason = getMediaHtmlFallbackReason();
+    const source = {
+      ...state,
+      ...(partial || {}),
+      enabled: isEffectivelyEnabled(),
+      mediaProcessed: normalizers.size,
+      captureFallbackReason: fallbackReason,
+      canCaptureTab: true
+    };
+
+    return SourceState && SourceState.classifyBrowserStatus
+      ? SourceState.classifyBrowserStatus(source)
+      : {
+        origin: "BrowserExtension",
+        browserState: fallbackReason ? "media-html-no-signal" : "observe-only",
+        controlSurface: fallbackReason ? "ObserveOnly" : "BrowserGain",
+        status: fallbackReason ? "Unknown" : mapRiskToStatus(state.riskLevel),
+        isControllable: !fallbackReason,
+        reason: fallbackReason,
+        recommendedAction: "Observer la source et copier un diagnostic."
+      };
   }
 
   function buildBrowserSourceStatus() {
-    const controlSurface = getBrowserControlSurface();
+    const fallbackReason = getMediaHtmlFallbackReason();
+    const classification = getBrowserClassification({ captureFallbackReason: fallbackReason });
     return {
       sourceId: `media-html:${state.site || "unknown"}`,
       siteName: state.site,
@@ -99,12 +214,17 @@
       calibrationState: state.calibrationState,
       measuredRmsDb: state.measuredRmsDb,
       appliedGainDb: state.appliedGainDb,
-      calibrationReason: state.calibrationReason,
+      calibrationReason: state.calibrationReason || fallbackReason,
+      captureFallbackRecommended: Boolean(fallbackReason),
+      captureFallbackReason: fallbackReason,
+      browserState: classification.browserState,
+      reason: classification.reason,
+      recommendedAction: classification.recommendedAction,
       targetRmsDb: state.targetRmsDb,
       targetProfile: settings.desktopTargetProfile || state.activeProfile,
-      status: mapRiskToStatus(state.riskLevel),
-      controlSurface,
-      isControllable: controlSurface === "BrowserGain",
+      status: classification.status,
+      controlSurface: classification.controlSurface,
+      isControllable: classification.isControllable,
       sourceType: state.sourceType,
       lastSeen: new Date(state.updatedAt).toISOString()
     };
@@ -181,12 +301,24 @@
   function syncBypassState() {
     normalizers.forEach((normalizer) => {
       if (normalizer.setEnabled) {
-        normalizer.setEnabled(settings.enabled && state.enabled && !state.excluded);
+        normalizer.setEnabled(isEffectivelyEnabled());
       }
       if (normalizer.setPanic) {
         normalizer.setPanic(state.panicActive);
       }
     });
+  }
+
+  function isEffectivelyEnabled() {
+    return Boolean(state.enabled) && Boolean(settings.enabled) && !state.excluded;
+  }
+
+  function getEnabledAfterSettingsRefresh(isExcluded, options) {
+    if (Object.prototype.hasOwnProperty.call(options || {}, "requestedEnabled")) {
+      return Boolean(options.requestedEnabled) && !isExcluded;
+    }
+    if (isExcluded) return false;
+    return state.enabled;
   }
 
   function applyPendingSettingsUpdate(options) {
@@ -283,11 +415,13 @@
       ? options.settings
       : await Settings.getSettings();
     settings = Settings.getSettingsForDomain(sourceSettings, state.site);
+    const isExcluded = Settings.isDomainExcluded(state.site, settings);
     updateState({
       activeProfile: settings.activeProfile,
       targetRmsDb: settings.targetRmsDb,
       maxBoostDb: settings.maxBoostDb,
-      excluded: Settings.isDomainExcluded(state.site, settings)
+      excluded: isExcluded,
+      enabled: getEnabledAfterSettingsRefresh(isExcluded, options)
     });
     updateNormalizerSettings(options);
     syncBypassState();
@@ -297,6 +431,9 @@
   async function processMedia(media) {
     if (normalizers.has(media)) return;
     if (processingMedia.has(media)) return;
+    if (media.dataset[PROCESSED_ATTR] === "true" && !normalizers.has(media)) {
+      delete media.dataset[PROCESSED_ATTR];
+    }
     if (media.dataset[PROCESSED_ATTR] === "true") {
       updateState({ skippedAlreadyProcessed: state.skippedAlreadyProcessed + 1 });
       return;
@@ -335,7 +472,7 @@
       skippedAlreadyProcessed: 0
     });
 
-    if (!state.enabled || state.excluded || !settings.enabled) {
+    if (!isEffectivelyEnabled()) {
       syncBypassState();
       return getStatus();
     }
@@ -355,13 +492,23 @@
   }
 
   async function setEnabled(enabled, mode, suppliedSettings) {
-    await refreshSettings({ immediate: true, settings: suppliedSettings });
+    await refreshSettings({ immediate: true, settings: suppliedSettings, requestedEnabled: Boolean(enabled) });
     updateState({
       enabled: Boolean(enabled) && !state.excluded,
       mode: mode || state.mode,
       lastError: ""
     });
-    await scanMedia();
+
+    if (!isEffectivelyEnabled()) {
+      syncBypassState();
+      return getStatus();
+    }
+
+    // Evite de bloquer le thread appelant (popup/background) pendant le scan complet.
+    scanMedia().catch((error) => {
+      updateState({ lastError: error.message });
+    });
+
     return getStatus();
   }
 
@@ -378,9 +525,28 @@
 
   function getStatus() {
     cleanupDetachedMedia();
-    return {
+    const mediaProcessed = normalizers.size;
+    const nextState = {
       ...state,
-      mediaProcessed: normalizers.size
+      mediaProcessed,
+      enabled: isEffectivelyEnabled()
+    };
+    const fallbackReason = getMediaHtmlFallbackReason();
+    const classification = getBrowserClassification({
+      ...nextState,
+      captureFallbackReason: fallbackReason
+    });
+    return {
+      ...nextState,
+      captureFallbackRecommended: Boolean(fallbackReason),
+      captureFallbackReason: fallbackReason,
+      origin: classification.origin,
+      browserState: classification.browserState,
+      controlSurface: classification.controlSurface,
+      status: classification.status,
+      isControllable: classification.isControllable,
+      reason: classification.reason,
+      recommendedAction: classification.recommendedAction
     };
   }
 

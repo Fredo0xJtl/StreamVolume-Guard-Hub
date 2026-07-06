@@ -7,6 +7,7 @@
   const LOCAL_HEALTH_ENDPOINT = "http://127.0.0.1:47841/health";
   const MIN_SEND_INTERVAL_MS = 1000;
   const MIN_LOG_SEND_INTERVAL_MS = 1500;
+  const LOCAL_FETCH_TIMEOUT_MS = 650;
   const TARGET_MIN_DB = -30;
   const TARGET_MAX_DB = -15;
   const URL_LIKE_PATTERN = /\bhttps?:\/\/[^\s]+/gi;
@@ -114,6 +115,30 @@
     return normalized.length > 80 ? normalized.slice(0, 80) : normalized;
   }
 
+  function localTimeoutErrorMessage(error) {
+    if (error && error.name === "AbortError") return "bridge timeout";
+    return error && error.message ? error.message : "bridge unavailable";
+  }
+
+  async function fetchWithLocalTimeout(endpoint, options) {
+    const requestOptions = { ...(options || {}) };
+    let timeoutId = 0;
+
+    if (typeof AbortController === "function") {
+      const controller = new AbortController();
+      requestOptions.signal = controller.signal;
+      timeoutId = root.setTimeout(() => controller.abort(), LOCAL_FETCH_TIMEOUT_MS);
+    }
+
+    try {
+      return await fetch(endpoint, requestOptions);
+    } finally {
+      if (timeoutId) {
+        root.clearTimeout(timeoutId);
+      }
+    }
+  }
+
   function buildBrowserSourceObserved(input) {
     const status = input && typeof input === "object" ? input : {};
     const sourceId = sanitizeText(status.sourceId, "");
@@ -137,6 +162,10 @@
       measuredRmsDb: clampOptionalAudioDb(status.measuredRmsDb),
       appliedGainDb: clampOptionalGainDb(status.appliedGainDb),
       calibrationReason: sanitizeText(status.calibrationReason, ""),
+      captureSignalState: sanitizeText(status.captureSignalState, ""),
+      browserState: sanitizeText(status.browserState, ""),
+      reason: sanitizeText(status.reason, ""),
+      recommendedAction: sanitizeText(status.recommendedAction, ""),
       targetRmsDb: clampOptionalTargetDb(status.targetRmsDb),
       targetProfile: sanitizeText(status.targetProfile, ""),
       status: normalizeStatus(status.status),
@@ -225,7 +254,7 @@
     }
 
     try {
-      const response = await fetch(LOCAL_BRIDGE_ENDPOINT, {
+      const response = await fetchWithLocalTimeout(LOCAL_BRIDGE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(message),
@@ -235,7 +264,7 @@
 
       return { ok: response.ok, status: response.status };
     } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "bridge unavailable" };
+      return { ok: false, error: localTimeoutErrorMessage(error) };
     }
   }
 
@@ -251,7 +280,7 @@
     }
 
     try {
-      const response = await fetch(LOCAL_EXTENSION_LOG_ENDPOINT, {
+      const response = await fetchWithLocalTimeout(LOCAL_EXTENSION_LOG_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(message),
@@ -261,7 +290,7 @@
 
       return { ok: response.ok, status: response.status };
     } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "bridge unavailable" };
+      return { ok: false, error: localTimeoutErrorMessage(error) };
     }
   }
 
@@ -271,7 +300,7 @@
     }
 
     try {
-      const response = await fetch(LOCAL_GLOBAL_TARGET_ENDPOINT, {
+      const response = await fetchWithLocalTimeout(LOCAL_GLOBAL_TARGET_ENDPOINT, {
         method: "GET",
         cache: "no-store",
         credentials: "omit"
@@ -283,7 +312,7 @@
       const state = normalizeGlobalTargetState(await response.json());
       return { ok: true, state };
     } catch (error) {
-      return { ok: false, error: error && error.message ? error.message : "bridge unavailable" };
+      return { ok: false, error: localTimeoutErrorMessage(error) };
     }
   }
 
@@ -293,7 +322,7 @@
     }
 
     try {
-      const response = await fetch(LOCAL_HEALTH_ENDPOINT, {
+      const response = await fetchWithLocalTimeout(LOCAL_HEALTH_ENDPOINT, {
         method: "GET",
         cache: "no-store",
         credentials: "omit"
@@ -312,7 +341,7 @@
 
       return { ok: true, connected: true, mode: "desktop", status: response.status, state };
     } catch (error) {
-      return { ok: false, connected: false, mode: "standalone", error: error && error.message ? error.message : "bridge unavailable" };
+      return { ok: false, connected: false, mode: "standalone", error: localTimeoutErrorMessage(error) };
     }
   }
 

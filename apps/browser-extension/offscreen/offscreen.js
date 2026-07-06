@@ -2,9 +2,12 @@
   const WLG = root.StreamVolumeGuard;
   const Settings = WLG.Settings;
   const Normalizer = WLG.Normalizer;
+  const SourceState = WLG.SourceState;
   const captures = new Map();
   const CAPTURE_NO_SIGNAL_WATCHDOG_MS = 1800;
   const MAX_CAPTURE_RESTARTS = 1;
+  const SPOTIFY_CAPTURE_DOMAINS = new Set(["spotify.com"]);
+  const SPOTIFY_SIGNAL_CONFIRM_COUNT = 3;
 
   function getCaptureHealth(stream) {
     const audioTracks = stream && stream.getAudioTracks ? stream.getAudioTracks() : [];
@@ -31,9 +34,29 @@
     return elapsedMs >= CAPTURE_NO_SIGNAL_WATCHDOG_MS ? "no-signal" : "starting";
   }
 
-  function buildNormalizerStatus(stream, nextState, startedAt, restartCount, restartDeferred) {
+  function isSpotifyDomain(site) {
+    const normalizedSite = Settings.normalizeDomain(typeof site === "string" ? site : "");
+    if (!normalizedSite) return false;
+    return (
+      SPOTIFY_CAPTURE_DOMAINS.has(normalizedSite) ||
+      [...SPOTIFY_CAPTURE_DOMAINS].some((domain) => normalizedSite.endsWith(`.${domain}`))
+    );
+  }
+
+  function buildNormalizerStatus(stream, nextState, startedAt, restartCount, restartDeferred, capture) {
     const captureHealth = getCaptureHealth(stream);
     let captureSignalState = getCaptureSignalState(captureHealth, nextState, startedAt);
+    if (isSpotifyDomain(capture && capture.site)) {
+      if (captureSignalState === "signal") {
+        const confirmCount = Number(capture.spotifySignalConfirmCount) || 0;
+        capture.spotifySignalConfirmCount = Math.min(confirmCount + 1, SPOTIFY_SIGNAL_CONFIRM_COUNT);
+        if (capture.spotifySignalConfirmCount < SPOTIFY_SIGNAL_CONFIRM_COUNT) {
+          captureSignalState = "no-signal";
+        }
+      } else {
+        capture.spotifySignalConfirmCount = 0;
+      }
+    }
     if (restartDeferred && captureSignalState === "no-signal") {
       captureSignalState = "waiting-for-audio";
     }
@@ -45,8 +68,10 @@
     const captureSignalError = captureSignalState === "no-signal"
       ? "Capture d'onglet active, piste audio live, mais aucun signal Web Audio detecte."
       : "";
+    const captureFallbackRecommended = captureSignalState === "no-signal";
+    const captureFallbackReason = captureFallbackRecommended ? "tab-capture-no-signal" : "";
 
-    return {
+    const status = {
       gainDb: nextState.gainDb,
       targetRmsDb: nextState.targetRmsDb,
       maxBoostDb: nextState.maxBoostDb,
@@ -64,11 +89,37 @@
       captureSignalState,
       captureRestartCount: Number(restartCount) || 0,
       captureRestartDeferred: Boolean(restartDeferred),
+      captureFallbackRecommended,
+      captureFallbackReason,
       riskLevel: nextState.riskLevel,
       containedPeakCount: nextState.containedPeakCount,
       activeProfile: nextState.profileId,
       panicActive: nextState.panicActive,
-      lastError: captureHealthError || captureSignalError
+      lastError: captureHealthError || captureSignalError,
+      enabled: true,
+      sourceType: "tab-capture"
+    };
+    const classification = SourceState && SourceState.classifyBrowserStatus
+      ? SourceState.classifyBrowserStatus(status)
+      : {
+        origin: "BrowserExtension",
+        browserState: captureSignalState === "signal" ? "tab-capture-signal" : "tab-capture-starting",
+        controlSurface: captureSignalState === "signal" ? "BrowserGain" : "ObserveOnly",
+        status: captureSignalState === "signal" ? "Safe" : "Unknown",
+        isControllable: captureSignalState === "signal",
+        reason: captureFallbackReason || captureSignalState,
+        recommendedAction: "Observer la capture et copier un diagnostic."
+      };
+
+    return {
+      ...status,
+      origin: classification.origin,
+      browserState: classification.browserState,
+      controlSurface: classification.controlSurface,
+      status: classification.status,
+      isControllable: classification.isControllable,
+      reason: classification.reason,
+      recommendedAction: classification.recommendedAction
     };
   }
 
@@ -79,6 +130,13 @@
       enabled: true,
       mode: "tab-capture",
       sourceType: "tab-capture",
+      origin: "BrowserExtension",
+      browserState: "tab-capture-starting",
+      controlSurface: "ObserveOnly",
+      status: "Unknown",
+      isControllable: false,
+      reason: "starting",
+      recommendedAction: "Attendre le signal tabCapture.",
       panicActive: false,
       site: Settings.normalizeDomain(site),
       activeProfile: settings.activeProfile,
@@ -107,6 +165,8 @@
       captureSignalState: "starting",
       captureRestartCount: Number(restartCount) || 0,
       captureRestartDeferred: false,
+      captureFallbackRecommended: false,
+      captureFallbackReason: "",
       riskLevel: "safe",
       containedPeakCount: 0,
       lastError: "",
@@ -163,6 +223,7 @@
     if (capture.restartRequested) return;
     if (capture.restartDeferred) return;
     if (status.captureSignalState !== "no-signal") return;
+    if (isSpotifyDomain(capture.site)) return;
 
     const restartCount = Number(capture.restartCount) || 0;
     if (restartCount >= MAX_CAPTURE_RESTARTS) return;
@@ -217,7 +278,14 @@
     const capture = captures.get(tabId);
     const updatedStatus = updateStatus(
       tabId,
-      buildNormalizerStatus(stream, nextState, startedAt, restartCount, capture && capture.restartDeferred)
+      buildNormalizerStatus(
+        stream,
+        nextState,
+        startedAt,
+        restartCount,
+        capture && capture.restartDeferred,
+        capture
+      )
     );
     if (!updatedStatus) return null;
 
@@ -234,9 +302,33 @@
     return updatedStatus;
   }
 
-  function stopCapture(tabId) {
+  function scheduleCaptureSignalWatchdog(tabId) {
+    const capture = captures.get(tabId);
+    if (!capture) return;
+
+    if (capture.signalWatchdogTimer) {
+      clearTimeout(capture.signalWatchdogTimer);
+    }
+
+    capture.signalWatchdogTimer = setTimeout(() => {
+      const capture = captures.get(tabId);
+      if (!capture) return;
+
+      capture.signalWatchdogTimer = null;
+      if (capture.status.captureSignalState !== "starting") return;
+
+      handleNormalizerState(tabId, capture.stream, capture.normalizer.getState(), capture.startedAt, capture.restartCount);
+    }, CAPTURE_NO_SIGNAL_WATCHDOG_MS + 250);
+  }
+
+  function stopCapture(tabId, options) {
+    const stopOptions = options && typeof options === "object" ? options : {};
     const capture = captures.get(tabId);
     if (!capture) return { ok: true, enabled: false };
+
+    if (capture.signalWatchdogTimer) {
+      clearTimeout(capture.signalWatchdogTimer);
+    }
 
     try {
       capture.normalizer.stop();
@@ -251,8 +343,19 @@
     }
 
     captures.delete(tabId);
-    const status = { ...capture.status, enabled: false, mediaProcessed: 0, sourceType: "none", updatedAt: Date.now() };
-    postStatus(tabId, status);
+    const status = {
+      ...capture.status,
+      enabled: false,
+      mediaProcessed: 0,
+      sourceType: "none",
+      captureStopReason: stopOptions.reason || "manual-stop",
+      updatedAt: Date.now()
+    };
+
+    if (!stopOptions.silent) {
+      postStatus(tabId, status);
+    }
+
     return { ok: true, status };
   }
 
@@ -262,7 +365,7 @@
 
     const captureSite = site || capture.site;
     if (Settings.isDomainExcluded(captureSite, Settings.normalizeSettings(savedSettings))) {
-      stopCapture(tabId);
+      stopCapture(tabId, { reason: "site-excluded" });
       return null;
     }
 
@@ -284,7 +387,7 @@
       return { ok: false, error: "Invalid tab capture request." };
     }
 
-    stopCapture(tabId);
+    stopCapture(tabId, { reason: "capture-restart", silent: true });
 
     const settings = Settings.getSettingsForDomain(message.settings, message.site);
     const restartCount = Number(message.restartCount) || 0;
@@ -323,18 +426,20 @@
         startedAt,
         restartCount,
         restartRequested: false,
-        restartDeferred: false
+        restartDeferred: false,
+        signalWatchdogTimer: null
       });
       stream.getTracks().forEach((track) => {
-        track.addEventListener("ended", () => stopCapture(tabId), { once: true });
+        track.addEventListener("ended", () => stopCapture(tabId, { reason: "track-ended" }), { once: true });
       });
 
       await normalizer.start();
+      scheduleCaptureSignalWatchdog(tabId);
       const startedStatus = handleNormalizerState(tabId, stream, normalizer.getState(), startedAt, restartCount);
       return { ok: true, status: startedStatus || captures.get(tabId).status };
     } catch (error) {
       if (captures.has(tabId)) {
-        stopCapture(tabId);
+        stopCapture(tabId, { reason: "startup-error" });
       } else {
         try {
           if (normalizer) normalizer.stop();
@@ -378,7 +483,7 @@
     }
 
     if (message.type === "WLG_STOP_TAB_CAPTURE") {
-      sendResponse(stopCapture(Number(message.tabId)));
+      sendResponse(stopCapture(Number(message.tabId), { reason: "user-stop" }));
       return false;
     }
 

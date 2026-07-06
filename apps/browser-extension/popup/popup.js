@@ -1,6 +1,7 @@
 (function initPopup(root) {
   const WLG = root.StreamVolumeGuard;
   const Settings = WLG.Settings;
+  const SourceState = WLG.SourceState;
 
   const elements = {
     siteLabel: document.getElementById("siteLabel"),
@@ -25,10 +26,36 @@
 
   let currentSettings = Settings.normalizeSettings();
   let currentStatus = null;
+  let activeTabContext = null;
   let currentDesktopLink = { connected: false, mode: "standalone", checkedAt: 0 };
   let refreshTimer = null;
   const STATUS_REFRESH_MS = 250;
   const DESKTOP_LINK_REFRESH_MS = 2000;
+  const TOGGLE_VISUAL_LOCK_MS = 420;
+  let toggleVisualLockValue = null;
+  let toggleVisualLockUntilMs = 0;
+  let setEnabledInProgress = false;
+  const TOGGLE_PENDING_MS = 900;
+  const TOGGLE_PENDING_CONFIRM_COUNT = 1;
+  const TAB_CAPTURE_NO_SIGNAL_VISUAL_STATES = new Set(["no-signal", "waiting-for-audio", "starting", "restart-requested"]);
+  const TAB_CAPTURE_AUDIBLE_OFF_CONFIRM_COUNT = 2;
+  const MONITORING_SOURCE_INACTIVE_CONFIRM_COUNT = 2;
+  const TOGGLE_INTENT_KEY = "streamVolumeGuard.extensionToggleIntent";
+  const TOGGLE_INTENT_TTL_MS = 18000;
+  const TOGGLE_INTENT_REFRESH_MS = 1000;
+  let pendingToggleState = null;
+  let pendingToggleUntilMs = 0;
+  let pendingToggleMatchCount = 0;
+  let toggleIntentState = null;
+  let toggleIntentRefreshUntilMs = 0;
+  let diagnosticCopyInProgress = false;
+  let cachedTabCaptureObservedNoSignal = false;
+  let tabCaptureObservedHoldKey = "";
+  let tabCaptureObservedHoldCount = 0;
+  let tabCaptureObservedHoldActive = false;
+  let monitoringSourceHoldKey = "";
+  let monitoringSourceHoldCount = 0;
+  let monitoringSourceHoldActive = false;
 
   const profileLabelKeys = {
     soft: "profileSoft",
@@ -66,6 +93,17 @@
     });
   }
 
+  function runtimeEmptyResponse(type) {
+    return {
+      ok: false,
+      error: `Empty runtime response for ${type || "unknown message"}`,
+      statusRoute: "runtime-empty-response",
+      diagnosticReason: "runtime-empty-response",
+      canInject: false,
+      canCaptureTab: false
+    };
+  }
+
   function sendRuntimeMessage(type, payload) {
     return new Promise((resolve) => {
       if (!root.chrome || !chrome.runtime || !chrome.runtime.sendMessage) {
@@ -78,9 +116,36 @@
           resolve({ ok: false, error: chrome.runtime.lastError.message });
           return;
         }
-        resolve(response || { ok: true });
+        resolve(response || runtimeEmptyResponse(type));
       });
     });
+  }
+
+  function queryPopupActiveTab(queryInfo) {
+    return new Promise((resolve) => {
+      if (!root.chrome || !chrome.tabs || !chrome.tabs.query) {
+        resolve(null);
+        return;
+      }
+
+      chrome.tabs.query(queryInfo, (tabs) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        resolve(tabs && tabs[0] ? tabs[0] : null);
+      });
+    });
+  }
+
+  async function refreshActiveTabContext() {
+    activeTabContext = await queryPopupActiveTab({ active: true, currentWindow: true })
+      || await queryPopupActiveTab({ active: true, lastFocusedWindow: true });
+    return activeTabContext;
+  }
+
+  function activeTabPayload() {
+    return activeTabContext && activeTabContext.id ? { tabId: activeTabContext.id } : {};
   }
 
   function formatDb(value) {
@@ -89,9 +154,401 @@
     return `${number.toFixed(1)} dB`;
   }
 
+  function setToggleVisualLock(enabled) {
+    toggleVisualLockValue = Boolean(enabled);
+    toggleVisualLockUntilMs = Date.now() + TOGGLE_VISUAL_LOCK_MS;
+  }
+
+  function setPendingToggleState(enabled) {
+    pendingToggleState = Boolean(enabled);
+    pendingToggleUntilMs = Date.now() + TOGGLE_PENDING_MS;
+    pendingToggleMatchCount = 0;
+  }
+
+  function clearPendingToggleState() {
+    pendingToggleState = null;
+    pendingToggleUntilMs = 0;
+    pendingToggleMatchCount = 0;
+  }
+
+  function getPendingToggleState() {
+    if (pendingToggleUntilMs <= 0 || Date.now() >= pendingToggleUntilMs) {
+      clearPendingToggleState();
+      return null;
+    }
+
+    return pendingToggleState;
+  }
+
+  function normalizeToggleIntent(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const at = Number(raw.at);
+    if (!Number.isFinite(at)) return null;
+    const value = raw.value === true || raw.value === false ? Boolean(raw.value) : null;
+    if (value === null) return null;
+
+    return {
+      value,
+      at,
+      ttlMs: Number.isFinite(Number(raw.ttlMs)) ? Number(raw.ttlMs) : TOGGLE_INTENT_TTL_MS
+    };
+  }
+
+  function isToggleIntentAlive(intent) {
+    if (!intent || !Number.isFinite(Number(intent.at))) return false;
+    const ttl = Number.isFinite(Number(intent.ttlMs)) ? Number(intent.ttlMs) : TOGGLE_INTENT_TTL_MS;
+    const age = Date.now() - Number(intent.at);
+    return age >= 0 && age <= ttl;
+  }
+
+  function getActiveToggleIntentState() {
+    if (!toggleIntentState || !isToggleIntentAlive(toggleIntentState)) {
+      toggleIntentState = null;
+      return null;
+    }
+
+    return Boolean(toggleIntentState.value);
+  }
+
+  function setLocalToggleIntent(enabled) {
+    toggleIntentState = {
+      value: Boolean(enabled),
+      at: Date.now(),
+      ttlMs: TOGGLE_INTENT_TTL_MS
+    };
+  }
+
+  async function persistToggleIntent(enabled) {
+    setLocalToggleIntent(enabled);
+    if (!root.chrome || !chrome.storage || !chrome.storage.local) return;
+
+    await new Promise((resolve) => {
+      chrome.storage.local.set(
+        {
+          [TOGGLE_INTENT_KEY]: {
+            value: Boolean(enabled),
+            at: toggleIntentState.at,
+            ttlMs: TOGGLE_INTENT_TTL_MS
+          }
+        },
+        () => resolve()
+      );
+    });
+  }
+
+  function clearToggleIntentState() {
+    toggleIntentState = null;
+    toggleIntentRefreshUntilMs = 0;
+    if (!root.chrome || !chrome.storage || !chrome.storage.local) return;
+
+    chrome.storage.local.remove(TOGGLE_INTENT_KEY, () => {
+      if (chrome.runtime && chrome.runtime.lastError) {
+        console.warn("StreamVolume Guard Hub could not clear extension toggle intent.", chrome.runtime.lastError.message);
+      }
+    });
+  }
+
+  async function refreshToggleIntentState() {
+    const now = Date.now();
+    if (toggleIntentRefreshUntilMs > now) return;
+    toggleIntentRefreshUntilMs = now + TOGGLE_INTENT_REFRESH_MS;
+    if (!root.chrome || !chrome.storage || !chrome.storage.local) return;
+
+    const storedIntent = await new Promise((resolve) => {
+      chrome.storage.local.get([TOGGLE_INTENT_KEY], (result) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        resolve(normalizeToggleIntent(result && result[TOGGLE_INTENT_KEY]));
+      });
+    });
+
+    if (!storedIntent) {
+      clearToggleIntentState();
+      return;
+    }
+
+    if (!isToggleIntentAlive(storedIntent)) {
+      clearToggleIntentState();
+      return;
+    }
+
+    toggleIntentState = storedIntent;
+  }
+
+  function hasExplicitEnabledInStatus() {
+    return currentStatus && Object.prototype.hasOwnProperty.call(currentStatus, "enabled");
+  }
+
+  function getStatusEnabledState() {
+    if (!hasExplicitEnabledInStatus()) {
+      return null;
+    }
+
+    if (!isStatusBasedEnabledStateReliable(currentStatus)) {
+      return null;
+    }
+
+    return Boolean(currentStatus.enabled) && !Boolean(currentStatus.excluded);
+  }
+
+  function isStatusBasedEnabledStateReliable(status) {
+    return Boolean(status && status.sourceType && status.sourceType !== "none");
+  }
+
+  function getGlobalEnabledState() {
+    const observedEnabled = Boolean(currentSettings && currentSettings.enabled);
+    const intentState = getActiveToggleIntentState();
+    if (intentState !== null) {
+      if (intentState !== observedEnabled) {
+        clearToggleIntentState();
+        return observedEnabled;
+      }
+      return observedEnabled;
+    }
+
+    return observedEnabled;
+  }
+
+  function getVisualEnabledState() {
+    const pendingState = getPendingToggleState();
+    if (pendingState !== null) return pendingState;
+    return getGlobalEnabledState();
+  }
+
+  function reconcilePendingToggleState() {
+    const pendingState = getPendingToggleState();
+    if (pendingState === null) {
+      const intentState = getActiveToggleIntentState();
+      if (intentState !== null && Boolean(currentSettings && currentSettings.enabled) === intentState) {
+        clearToggleIntentState();
+      }
+      return;
+    }
+
+    const observedEnabled = Boolean(currentSettings && currentSettings.enabled);
+
+    if (observedEnabled === pendingState) {
+      pendingToggleMatchCount += 1;
+      if (pendingToggleMatchCount >= TOGGLE_PENDING_CONFIRM_COUNT) {
+        clearPendingToggleState();
+        clearToggleIntentState();
+      }
+      return;
+    }
+
+    pendingToggleMatchCount = 0;
+  }
+
+  function consumeToggleVisualLock() {
+    if (toggleVisualLockValue === null) return null;
+    if (Date.now() < toggleVisualLockUntilMs) return toggleVisualLockValue;
+
+    toggleVisualLockValue = null;
+    toggleVisualLockUntilMs = 0;
+    return null;
+  }
+
+  function getTabCaptureObservabilityKey(status) {
+    const site = status && status.site ? String(status.site) : "";
+    const tabId = Number(status && status.tabId);
+    return `${site}:${Number.isFinite(tabId) ? tabId : "active"}`;
+  }
+
+  function clearTabCaptureObservedHoldState() {
+    tabCaptureObservedHoldCount = 0;
+    tabCaptureObservedHoldKey = "";
+    tabCaptureObservedHoldActive = false;
+  }
+
+  function clearMonitoringSourceHoldState() {
+    monitoringSourceHoldCount = 0;
+    monitoringSourceHoldKey = "";
+    monitoringSourceHoldActive = false;
+  }
+
+  function getMonitoringSourceHoldKey(status) {
+    const site = status && status.site ? String(status.site) : "";
+    const sourceType = status && status.sourceType ? String(status.sourceType) : "none";
+    const tabId = status && Number(status.tabId);
+    const normalizedTabId = Number.isFinite(tabId) ? tabId : "active";
+    return `${site}:${sourceType}:${normalizedTabId}`;
+  }
+
+  function isObservedTabCaptureTransient(status) {
+    if (!status || status.sourceType !== "tab-capture" || status.excluded) return false;
+    if (!status.enabled) return false;
+    if (Number(status.audioTrackCount) < 1) return false;
+    if (status.captureTrackState !== "live") return false;
+    return (
+      status.tabAudible === false ||
+      status.captureSignalState === "starting" ||
+      status.captureSignalState === "waiting-for-audio" ||
+      status.captureSignalState === "restart-requested"
+    );
+  }
+
+  function isMatchingTabCaptureObservedHold(status) {
+    return Boolean(
+      tabCaptureObservedHoldActive &&
+      status &&
+      !status.excluded &&
+      status.enabled &&
+      Number(status.audioTrackCount) >= 1 &&
+      status.captureTrackState === "live" &&
+      getTabCaptureObservabilityKey(status) === tabCaptureObservedHoldKey
+    );
+  }
+
+  function isObservedTabCaptureHoldTransient(status) {
+    if (!status) return false;
+    if (!isMatchingTabCaptureObservedHold(status)) return false;
+    if (status.sourceType !== "tab-capture") return true;
+    if (!status.captureSignalState) return true;
+    if (status.tabAudible === false) return true;
+    if (
+      status.captureSignalState === "starting" ||
+      status.captureSignalState === "waiting-for-audio" ||
+      status.captureSignalState === "restart-requested"
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function isObservedTabCaptureNoSignalStable(status) {
+    const observedNow = isObservedTabCaptureNoSignal(status);
+    if (observedNow) {
+      tabCaptureObservedHoldKey = getTabCaptureObservabilityKey(status);
+      tabCaptureObservedHoldCount = 0;
+      tabCaptureObservedHoldActive = true;
+      return true;
+    }
+
+    if (!status) {
+      if (!tabCaptureObservedHoldActive) {
+        return false;
+      }
+
+      tabCaptureObservedHoldCount += 1;
+      return tabCaptureObservedHoldCount < TAB_CAPTURE_AUDIBLE_OFF_CONFIRM_COUNT;
+    }
+
+    if (!isMatchingTabCaptureObservedHold(status)) {
+      clearTabCaptureObservedHoldState();
+      return false;
+    }
+
+    if (!isObservedTabCaptureHoldTransient(status)) {
+      clearTabCaptureObservedHoldState();
+      return false;
+    }
+
+    tabCaptureObservedHoldCount += 1;
+    if (tabCaptureObservedHoldCount < TAB_CAPTURE_AUDIBLE_OFF_CONFIRM_COUNT) {
+      return true;
+    }
+
+    clearTabCaptureObservedHoldState();
+    return false;
+  }
+
+  function updateMonitoringSourceHoldState(status) {
+    if (!status || !isMonitoringSourceActive(status)) {
+      if (!monitoringSourceHoldActive) return false;
+      if (monitoringSourceHoldKey && monitoringSourceHoldKey !== getMonitoringSourceHoldKey(status)) {
+        clearMonitoringSourceHoldState();
+        return false;
+      }
+      monitoringSourceHoldCount += 1;
+      if (monitoringSourceHoldCount < MONITORING_SOURCE_INACTIVE_CONFIRM_COUNT) {
+        return true;
+      }
+      clearMonitoringSourceHoldState();
+      return false;
+    }
+
+    monitoringSourceHoldActive = true;
+    monitoringSourceHoldKey = getMonitoringSourceHoldKey(status);
+    monitoringSourceHoldCount = 0;
+    return true;
+  }
+
+  function getToggleVisualState(cachedTabCaptureObservedState = null, monitoringSourceActive = false) {
+    const lockValue = consumeToggleVisualLock();
+    if (lockValue !== null) return lockValue;
+
+    const pendingState = getPendingToggleState();
+    if (pendingState !== null) return pendingState;
+
+    const activeIntentState = getActiveToggleIntentState();
+    if (activeIntentState !== null) return activeIntentState;
+
+    if (!currentStatus || currentStatus.excluded) return false;
+
+    if (needsDesktopFallback(currentStatus)) return true;
+    if (cachedTabCaptureObservedState !== null) {
+      if (cachedTabCaptureObservedState) return true;
+    } else if (isObservedTabCaptureNoSignalStable(currentStatus)) {
+      return true;
+    }
+
+    const effectiveEnabled = getStatusEnabledState();
+    if (!effectiveEnabled) return false;
+
+    if (currentStatus.sourceType === "tab-capture") {
+      return true;
+    }
+
+    return Boolean(monitoringSourceActive) ||
+      (hasControllableProtectionSurface(currentStatus) &&
+        !requiresTabCaptureUpgrade(currentStatus));
+  }
+
+  function getProtectionStateForButton(monitoringSourceActive = false) {
+    const lockValue = consumeToggleVisualLock();
+    if (lockValue !== null) return lockValue;
+
+    const effectiveEnabled = getStatusEnabledState();
+    if (!effectiveEnabled || !currentStatus) return false;
+    if (needsDesktopFallback(currentStatus)) return true;
+    if (requiresTabCaptureUpgrade(currentStatus)) return false;
+    if (cachedTabCaptureObservedNoSignal) return true;
+    if (currentStatus && currentStatus.sourceType === "tab-capture") return true;
+    return monitoringSourceActive || isMonitoringSourceActive(currentStatus);
+  }
+
+  function isObservedTabCaptureNoSignal(status) {
+    if (!status || status.excluded) return false;
+    if (status.sourceType !== "tab-capture") return false;
+    const captureSignalState = String(status.captureSignalState || "");
+    const captureTrackState = String(status.captureTrackState || "").toLowerCase();
+    if (captureSignalState === "starting" && captureTrackState !== "ended" && captureTrackState !== "interrupted") {
+      return Number(status.mediaDetected) >= 1 || Number(status.mediaProcessed) >= 1;
+    }
+    if (!TAB_CAPTURE_NO_SIGNAL_VISUAL_STATES.has(captureSignalState) && status.tabAudible !== false) {
+      return false;
+    }
+    if (status.audioTrackCount < 1) return false;
+    if (status.captureTrackState !== "live") return false;
+    if (Number(status.mediaDetected) < 1 && Number(status.mediaProcessed) < 1) return false;
+    return true;
+  }
+
+  function cacheTabCaptureNoSignalState(status) {
+    const observed = isObservedTabCaptureNoSignalStable(status);
+    cachedTabCaptureObservedNoSignal = observed;
+    return observed;
+  }
+
   function finiteNumber(value, fallback) {
     const number = Number(value);
     return Number.isFinite(number) ? number : fallback;
+  }
+
+  function hasDiagnosticBoolean(source, key) {
+    return Boolean(source && Object.prototype.hasOwnProperty.call(source, key));
   }
 
   function profileHintForStatus(status) {
@@ -106,10 +563,91 @@
     return i18n("popupProfileGlobal", "Global profile");
   }
 
+  function hasExplicitDesktopFallback(status) {
+    return Boolean(
+      status &&
+      status.enabled &&
+      (
+        status.captureFallbackRecommended ||
+        status.captureFallbackReason ||
+        status.fallbackRecommended ||
+        status.fallbackReason
+      )
+    );
+  }
+
+  function isDesktopBridgeConnected() {
+    return Boolean(currentDesktopLink && currentDesktopLink.connected);
+  }
+
+  function isActiveUncontrollableMediaFallback(status) {
+    return Boolean(
+      status &&
+      status.enabled &&
+      status.site &&
+      Settings.getPreferredSourceTypeForDomain(status.site) === "tab-capture" &&
+      status.sourceType === "media-html" &&
+      Number(status.mediaDetected) < 1 &&
+      Number(status.mediaProcessed) < 1
+    );
+  }
+
   function requiresTabCaptureUpgrade(status) {
     if (!status || !status.enabled || !status.site) return false;
+    if (hasExplicitDesktopFallback(status)) return false;
+    if (isActiveUncontrollableMediaFallback(status)) return false;
     return Settings.getPreferredSourceTypeForDomain(status.site) === "tab-capture" &&
       status.sourceType !== "tab-capture";
+  }
+
+  function hasControllableProtectionSurface(status) {
+    const surface = status && status.controlSurface ? status.controlSurface : "";
+    return surface === "BrowserGain" || surface === "WindowsSessionVolume";
+  }
+
+  function isMonitoringSourceActive(status) {
+    return Boolean(
+      status &&
+      !status.excluded &&
+      status.enabled &&
+      status.sourceType &&
+      status.sourceType !== "none"
+    );
+  }
+
+  function needsDesktopFallback(status) {
+    return Boolean(
+      isDesktopBridgeConnected() &&
+      status &&
+      status.enabled &&
+      !status.excluded &&
+      (
+        hasExplicitDesktopFallback(status) ||
+        isActiveUncontrollableMediaFallback(status)
+      )
+    );
+  }
+
+  function hasStandaloneMediaHtmlLimit(status) {
+    return Boolean(
+      !isDesktopBridgeConnected() &&
+      status &&
+      status.enabled &&
+      !status.excluded &&
+      status.sourceType === "media-html" &&
+      (status.captureFallbackReason || status.mediaHtmlFallbackReason)
+    );
+  }
+
+  function isUnknownProtectionStatus(status) {
+    return Boolean(
+      !status ||
+      !status.sourceType ||
+      status.sourceType === "unknown" ||
+      status.sourceType === "none" ||
+      status.statusRoute === "active-tab-empty" ||
+      status.statusRoute === "no-active-tab"
+    );
   }
 
   function setMessage(text) {
@@ -138,9 +676,20 @@
 
   function diagnosticItems(status) {
     const items = [];
+    const desktopFallbackNeeded = needsDesktopFallback(status);
 
     if (status.panicActive) {
       items.push({ key: "diagnosticPanicActive", tone: "error" });
+    }
+
+    if (desktopFallbackNeeded) {
+      items.push({ key: "diagnosticDesktopFallbackActive", tone: "ok" });
+      items.push({ key: "diagnosticDesktopFallbackDetail", tone: "warn" });
+    }
+
+    if (hasStandaloneMediaHtmlLimit(status)) {
+      items.push({ key: "diagnosticStandaloneMediaHtmlLimit", tone: "warn" });
+      items.push({ key: "diagnosticStandaloneMediaHtmlLimitDetail", tone: "warn" });
     }
 
     if (status.sourceType === "tab-capture") {
@@ -168,7 +717,7 @@
       return items;
     }
 
-    if (status.lastError) {
+    if (status.lastError && !desktopFallbackNeeded) {
       items.push({ key: "diagnosticSourceIncompatible", tone: "error" });
     }
 
@@ -212,38 +761,57 @@
   }
 
   function render() {
-    const status = currentStatus || {};
-    const excluded = Boolean(status.excluded);
-    const enabled = Boolean(status.enabled);
-    const shouldStopProtection = enabled && !requiresTabCaptureUpgrade(status);
+    const status = currentStatus;
+    const safeStatus = status || {};
+    const excluded = Boolean(safeStatus.excluded);
+    const enabled = Boolean(safeStatus.enabled);
+    const monitoringSourceActive = isMonitoringSourceActive(safeStatus);
+    const monitoringSourceActiveWithHold = updateMonitoringSourceHoldState(safeStatus);
+    const shouldStopProtection = enabled &&
+      monitoringSourceActiveWithHold &&
+      hasControllableProtectionSurface(safeStatus) &&
+      !requiresTabCaptureUpgrade(safeStatus);
+    const needsDesktopFallbackProtection = needsDesktopFallback(safeStatus);
+    const desktopFallbackActive = needsDesktopFallbackProtection;
+    const tabCaptureObserved = cacheTabCaptureNoSignalState(status);
+    const tabProtectionActive = shouldStopProtection || needsDesktopFallbackProtection || monitoringSourceActiveWithHold;
+    const toggleVisualState = getToggleVisualState(tabCaptureObserved, monitoringSourceActiveWithHold);
+    const protectButtonActive = getProtectionStateForButton(monitoringSourceActiveWithHold);
 
-    elements.siteLabel.textContent = status.site || i18n("popupUnknownSite", "unknown site");
-    elements.enabledToggle.checked = currentSettings.enabled && shouldStopProtection;
-    elements.enabledToggle.disabled = excluded;
-    elements.profileSelect.value = status.activeProfile || Settings.getEffectiveProfileIdForDomain(currentSettings, status.site);
-    elements.profileHint.textContent = profileHintForStatus(status);
-    elements.gainValue.textContent = formatDb(status.gainDb);
-    elements.rmsValue.textContent = formatDb(status.rmsDb);
-    elements.mediaValue.textContent = `${status.mediaProcessed || 0}/${status.mediaDetected || 0}`;
-    renderRisk(status);
-    renderDiagnostics(status);
+    elements.siteLabel.textContent = safeStatus.site || i18n("popupUnknownSite", "unknown site");
+    elements.enabledToggle.checked = Boolean(tabProtectionActive || toggleVisualState);
+    elements.enabledToggle.disabled = excluded || setEnabledInProgress;
+    elements.profileSelect.value = safeStatus.activeProfile || Settings.getEffectiveProfileIdForDomain(currentSettings, safeStatus.site);
+    elements.profileHint.textContent = profileHintForStatus(safeStatus);
+    elements.gainValue.textContent = formatDb(safeStatus.gainDb);
+    elements.rmsValue.textContent = formatDb(safeStatus.rmsDb);
+    elements.mediaValue.textContent = `${safeStatus.mediaProcessed || 0}/${safeStatus.mediaDetected || 0}`;
+    renderRisk(safeStatus);
+    renderDiagnostics(safeStatus);
     renderDesktopLink();
 
-    elements.statusBadge.classList.toggle("is-on", shouldStopProtection && !excluded);
+    elements.statusBadge.classList.toggle("is-on", (shouldStopProtection || desktopFallbackActive || tabCaptureObserved) && !excluded);
     elements.statusBadge.classList.toggle("is-blocked", excluded);
-    elements.statusBadge.textContent = excluded
-      ? i18n("popupExcluded", "excluded")
-      : shouldStopProtection
-        ? i18n("popupActive", "active")
-        : i18n("popupReady", "ready");
+    let statusBadgeText = i18n("popupReady", "ready");
+    if (excluded) {
+      statusBadgeText = i18n("popupExcluded", "excluded");
+    } else if (desktopFallbackActive) {
+      statusBadgeText = i18n("popupWindowsControl", "Windows control");
+    } else if (tabCaptureObserved) {
+      statusBadgeText = i18n("popupActive", "active");
+    } else if (shouldStopProtection) {
+      statusBadgeText = i18n("popupActive", "active");
+    }
 
-    elements.autoDomainButton.disabled = !status.site;
+    elements.statusBadge.textContent = statusBadgeText;
+
+    elements.autoDomainButton.disabled = !safeStatus.site;
     elements.protectButton.disabled = excluded;
-    elements.protectButton.textContent = shouldStopProtection
+    elements.protectButton.textContent = protectButtonActive
       ? i18n("popupStopProtection", "Stop protection")
       : i18n("popupProtectTab", "Protect this tab");
-    elements.panicButton.classList.toggle("is-panic-active", Boolean(status.panicActive));
-    elements.panicButton.textContent = status.panicActive
+    elements.panicButton.classList.toggle("is-panic-active", Boolean(safeStatus.panicActive));
+    elements.panicButton.textContent = safeStatus.panicActive
       ? i18n("popupPanicActive", "Panic active")
       : i18n("popupPanic", "Panic");
   }
@@ -270,20 +838,50 @@
     return currentDesktopLink;
   }
 
-  async function refresh() {
+  async function refresh(forceDesktopLink) {
     currentSettings = await Settings.getSettings();
-    currentStatus = await sendRuntimeMessage("WLG_GET_ACTIVE_STATUS");
-    await refreshDesktopLinkStatus(false);
+    await refreshActiveTabContext();
+    currentStatus = await sendRuntimeMessage("WLG_GET_ACTIVE_STATUS", activeTabPayload());
+    await refreshToggleIntentState();
+    await refreshDesktopLinkStatus(Boolean(forceDesktopLink));
+    reconcilePendingToggleState();
     render();
   }
 
   async function setEnabled(enabled) {
-    currentSettings = await Settings.saveSettings({ enabled });
-    currentStatus = enabled
-      ? await sendRuntimeMessage("WLG_PROTECT_CURRENT_TAB")
-      : await sendRuntimeMessage("WLG_DEACTIVATE_CURRENT_TAB");
-    if (!currentStatus.ok && currentStatus.error) setMessage(currentStatus.error);
-    render();
+    if (setEnabledInProgress) return;
+
+    const requested = Boolean(enabled);
+    setEnabledInProgress = true;
+    setToggleVisualLock(requested);
+    setPendingToggleState(requested);
+    elements.enabledToggle.disabled = true;
+    elements.protectButton.disabled = true;
+
+    try {
+      await persistToggleIntent(requested);
+      currentSettings = await Settings.saveSettings({ enabled: requested });
+      currentStatus = requested
+        ? await sendRuntimeMessage("WLG_PROTECT_CURRENT_TAB", activeTabPayload())
+        : await sendRuntimeMessage("WLG_DEACTIVATE_CURRENT_TAB", activeTabPayload());
+
+      if (!currentStatus.ok && currentStatus.error) {
+        setMessage(currentStatus.error);
+        toggleVisualLockUntilMs = 0;
+        toggleVisualLockValue = null;
+        clearToggleIntentState();
+      }
+    } catch (error) {
+      setMessage(error.message);
+      toggleVisualLockUntilMs = 0;
+      toggleVisualLockValue = null;
+      clearPendingToggleState();
+      clearToggleIntentState();
+      currentStatus = { ok: false, error: error.message };
+    } finally {
+      setEnabledInProgress = false;
+      void refresh();
+    }
   }
 
   async function setProfile(profileId) {
@@ -304,36 +902,103 @@
         };
 
     currentSettings = await Settings.saveSettings(nextSettings);
-    await sendRuntimeMessage("WLG_REFRESH_ACTIVE_TAB");
+    await sendRuntimeMessage("WLG_REFRESH_ACTIVE_TAB", activeTabPayload());
     setMessage(site ? i18n("popupProfileSaved", "Profile saved for this site") : "");
     await refresh();
   }
 
   async function setPanic(active) {
-    const response = await sendRuntimeMessage("WLG_SET_PANIC", { active });
+    const response = await sendRuntimeMessage("WLG_SET_PANIC", { active, ...activeTabPayload() });
     if (!response.ok && response.error) setMessage(response.error);
     await refresh();
   }
 
-  async function copyDiagnostic() {
-    const manifest = root.chrome && chrome.runtime && chrome.runtime.getManifest
-      ? chrome.runtime.getManifest()
+  function cleanDiagnosticText(value) {
+    return value === undefined || value === null ? "" : String(value).slice(0, 120).trim();
+  }
+
+  function isTabCaptureFallbackReason(reason) {
+    if (SourceState && typeof SourceState.isTabCaptureFallbackReason === "function") {
+      return SourceState.isTabCaptureFallbackReason(reason);
+    }
+    return cleanDiagnosticText(reason).toLowerCase().includes("tab-capture");
+  }
+
+  function getCaptureFallbackReason(status) {
+    if (!status) return "";
+    const captureReason = cleanDiagnosticText(status.captureFallbackReason);
+    if (isTabCaptureFallbackReason(captureReason)) return captureReason;
+    const sourceReason = cleanDiagnosticText(status.reason);
+    if (isTabCaptureFallbackReason(sourceReason)) return sourceReason;
+    if (status.captureSignalState === "no-signal" && finiteNumber(status.captureRestartCount, 0) > 0) {
+      return "tab-capture-no-signal";
+    }
+    return status.sourceType === "tab-capture" ? captureReason : "";
+  }
+
+  function getMediaHtmlFallbackReasonForDiagnostic(status) {
+    if (!status || status.sourceType !== "media-html") return "";
+    const explicitReason = cleanDiagnosticText(status.mediaHtmlFallbackReason);
+    if (explicitReason && !isTabCaptureFallbackReason(explicitReason)) return explicitReason;
+    const captureReason = cleanDiagnosticText(status.captureFallbackReason);
+    if (captureReason && !isTabCaptureFallbackReason(captureReason)) return captureReason;
+    const sourceReason = cleanDiagnosticText(status.reason);
+    if (sourceReason && sourceReason !== "media-html-starting" && !isTabCaptureFallbackReason(sourceReason)) return sourceReason;
+    if (finiteNumber(status.mediaDetected, 0) < 1) return "no-media-element-detected";
+    if (finiteNumber(status.mediaProcessed, 0) < 1) return "no-controllable-media-detected";
+    return "";
+  }
+
+  function getDiagnosticLastError(status) {
+    const message = status && (status.lastError || status.error) ? String(status.lastError || status.error).slice(0, 300) : "";
+    if (!message || currentDesktopLink.connected) return message;
+    if (message.toLowerCase().includes("fallback desktop")) {
+      return "Capture d'onglet sans signal Web Audio exploitable. Source observee seulement en mode extension seule.";
+    }
+    return message;
+  }
+
+  function buildPopupDiagnostic() {
+      const manifest = root.chrome && chrome.runtime && chrome.runtime.getManifest
+        ? chrome.runtime.getManifest()
+        : {};
+    const desktopFallbackRecommended = Boolean(currentDesktopLink.connected && currentStatus && currentStatus.captureFallbackRecommended);
+    const rawCaptureFallbackReason = getCaptureFallbackReason(currentStatus);
+    const rawMediaHtmlFallbackReason = getMediaHtmlFallbackReasonForDiagnostic(currentStatus);
+    const classification = SourceState && SourceState.classifyBrowserStatus
+      ? SourceState.classifyBrowserStatus(currentStatus || {}, { desktopBridgeConnected: Boolean(currentDesktopLink.connected) })
       : {};
-    const diagnostic = {
+
+    return {
       product: "StreamVolume Guard Hub",
       extensionVersion: manifest.version || "dev",
       generatedAt: new Date().toISOString(),
       browserLanguage: root.navigator && root.navigator.language ? root.navigator.language : "",
+      statusOk: currentStatus ? currentStatus.ok !== false : false,
+      statusError: currentStatus && currentStatus.error ? String(currentStatus.error).slice(0, 300) : "",
+      statusRoute: currentStatus && currentStatus.statusRoute ? String(currentStatus.statusRoute).slice(0, 120) : "",
+      diagnosticReason: currentStatus && currentStatus.diagnosticReason ? String(currentStatus.diagnosticReason).slice(0, 120) : "",
+      popupTabIdKnown: Boolean(activeTabContext && activeTabContext.id),
+      globalEnabled: Boolean(currentSettings && currentSettings.enabled),
+      visualEnabled: Boolean(elements.enabledToggle && elements.enabledToggle.checked),
+      origin: classification.origin || "BrowserExtension",
+      browserState: classification.browserState || "",
+      controlSurface: classification.controlSurface || "Unknown",
+      status: classification.status || (currentStatus && currentStatus.status) || "Unknown",
+      isControllable: Boolean(classification.isControllable),
+      reason: classification.reason || "",
+      recommendedAction: classification.recommendedAction || "",
       site: currentStatus && currentStatus.site ? currentStatus.site : "",
       sourceType: currentStatus && currentStatus.sourceType ? currentStatus.sourceType : "unknown",
       activeProfile: currentStatus && currentStatus.activeProfile ? currentStatus.activeProfile : currentSettings.activeProfile,
       enabled: Boolean(currentStatus && currentStatus.enabled),
       excluded: Boolean(currentStatus && currentStatus.excluded),
-      canInject: currentStatus ? currentStatus.canInject !== false : false,
-      canCaptureTab: currentStatus ? currentStatus.canCaptureTab !== false : false,
+      canInject: hasDiagnosticBoolean(currentStatus, "canInject") ? currentStatus.canInject !== false : false,
+      canCaptureTab: hasDiagnosticBoolean(currentStatus, "canCaptureTab") ? currentStatus.canCaptureTab !== false : false,
       panicActive: Boolean(currentStatus && currentStatus.panicActive),
       mediaDetected: finiteNumber(currentStatus && currentStatus.mediaDetected, 0),
       mediaProcessed: finiteNumber(currentStatus && currentStatus.mediaProcessed, 0),
+      skippedAlreadyProcessed: finiteNumber(currentStatus && currentStatus.skippedAlreadyProcessed, 0),
       riskLevel: currentStatus && currentStatus.riskLevel ? currentStatus.riskLevel : "safe",
       containedPeakCount: finiteNumber(currentStatus && currentStatus.containedPeakCount, 0),
       targetRmsDb: finiteNumber(currentStatus && currentStatus.targetRmsDb, currentSettings.targetRmsDb),
@@ -350,12 +1015,16 @@
       captureSignalState: currentStatus && currentStatus.captureSignalState ? currentStatus.captureSignalState : "",
       captureRestartCount: finiteNumber(currentStatus && currentStatus.captureRestartCount, 0),
       captureRestartDeferred: Boolean(currentStatus && currentStatus.captureRestartDeferred),
+      fallbackRecommended: desktopFallbackRecommended,
+      fallbackReason: desktopFallbackRecommended ? rawMediaHtmlFallbackReason : "",
+      mediaHtmlFallbackReason: !currentDesktopLink.connected ? rawMediaHtmlFallbackReason : "",
+      captureFallbackReason: rawCaptureFallbackReason,
       tabAudible: Boolean(currentStatus && currentStatus.tabAudible),
       tabActive: Boolean(currentStatus && currentStatus.tabActive),
       desktopBridgeConnected: Boolean(currentDesktopLink.connected),
       desktopBridgeMode: currentDesktopLink.mode || "standalone",
       desktopBridgeStatus: finiteNumber(currentDesktopLink.status, 0),
-      lastError: currentStatus && currentStatus.lastError ? String(currentStatus.lastError).slice(0, 300) : "",
+      lastError: getDiagnosticLastError(currentStatus),
       privacy: {
         localOnly: true,
         sentAutomatically: false,
@@ -364,12 +1033,24 @@
         includesAudio: false
       }
     };
+  }
+
+  async function copyDiagnostic() {
+    if (diagnosticCopyInProgress) return;
+
+    diagnosticCopyInProgress = true;
+    elements.copyDiagnosticButton.disabled = true;
+    setMessage(i18n("popupDiagnosticCopying", "Diagnostic..."));
 
     try {
+      const diagnostic = buildPopupDiagnostic();
       await navigator.clipboard.writeText(JSON.stringify(diagnostic, null, 2));
       setMessage(i18n("popupDiagnosticCopied", "Diagnostic copied"));
     } catch (error) {
       setMessage(i18n("popupDiagnosticCopyFailed", "Copy failed"));
+    } finally {
+      diagnosticCopyInProgress = false;
+      elements.copyDiagnosticButton.disabled = false;
     }
   }
 
@@ -386,6 +1067,7 @@
   }
 
   elements.enabledToggle.addEventListener("change", () => {
+    if (setEnabledInProgress) return;
     setEnabled(elements.enabledToggle.checked);
   });
 
@@ -394,8 +1076,8 @@
   });
 
   elements.protectButton.addEventListener("click", () => {
-    const shouldStopProtection = currentStatus && currentStatus.enabled && !requiresTabCaptureUpgrade(currentStatus);
-    setEnabled(!shouldStopProtection);
+    const active = getProtectionStateForButton(updateMonitoringSourceHoldState(currentStatus || {}));
+    setEnabled(!active);
   });
 
   elements.autoDomainButton.addEventListener("click", () => {
@@ -422,7 +1104,19 @@
 
   localizeStaticText();
   fillProfiles();
-  refresh();
+  refresh(true);
   refreshTimer = root.setInterval(refresh, STATUS_REFRESH_MS);
-  root.addEventListener("unload", () => root.clearInterval(refreshTimer));
+  function disposePopup() {
+    if (refreshTimer) {
+      root.clearInterval(refreshTimer);
+      refreshTimer = null;
+    }
+  }
+
+  root.addEventListener("pagehide", disposePopup);
+  root.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      disposePopup();
+    }
+  });
 })(globalThis);

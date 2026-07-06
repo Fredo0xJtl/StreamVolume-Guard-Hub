@@ -4,6 +4,9 @@ using StreamVolumeGuard.Core.Browser;
 using StreamVolumeGuard.Core.Bridge;
 using StreamVolumeGuard.Core.Config;
 using StreamVolumeGuard.Core.Control;
+using StreamVolumeGuard.Core.Coverage;
+using StreamVolumeGuard.Core.GlobalOutput;
+using StreamVolumeGuard.Core.Localization;
 using StreamVolumeGuard.Core.Logging;
 using StreamVolumeGuard.Core.Normalization;
 
@@ -36,6 +39,13 @@ var tests = new List<(string Name, Action Test)>
     ("browser source snapshot keeps capability data", BrowserSourceSnapshotKeepsCapabilityData),
     ("browser source store removes stale sources", BrowserSourceStoreRemovesStaleSources),
     ("browser source store preserves recent browser gain during observe-only flap", BrowserSourceStorePreservesRecentBrowserGainDuringObserveOnlyFlap),
+    ("coverage classifier marks direct Windows sessions", CoverageClassifierMarksDirectWindowsSessions),
+    ("coverage classifier marks direct BrowserGain sources", CoverageClassifierMarksDirectBrowserGainSources),
+    ("coverage classifier marks browser sources needing user action", CoverageClassifierMarksBrowserSourcesNeedingUserAction),
+    ("coverage classifier uses browser recommended action", CoverageClassifierUsesBrowserRecommendedAction),
+    ("coverage classifier marks restricted browser sources without fallback as limited", CoverageClassifierMarksRestrictedBrowserSourcesWithoutFallbackAsLimited),
+    ("coverage classifier exposes Windows fallback for browser sub sources", CoverageClassifierExposesWindowsFallbackForBrowserSubSources),
+    ("coverage classifier avoids double direct count for browser parent sessions", CoverageClassifierAvoidsDoubleDirectCountForBrowserParentSessions),
     ("browser gain priority is default and blocks browser session auto correction", BrowserGainPriorityIsDefaultAndBlocksBrowserSessionAutoCorrection),
     ("browser global control allows browser session auto correction", BrowserGlobalControlAllowsBrowserSessionAutoCorrection),
     ("browser gain priority can still block browser session auto correction", BrowserGainPriorityCanStillBlockBrowserSessionAutoCorrection),
@@ -63,7 +73,11 @@ var tests = new List<(string Name, Action Test)>
     ("desktop shows extension link as connected or standalone", DesktopShowsExtensionLinkAsConnectedOrStandalone),
     ("desktop extension link avoids cramped summary card", DesktopExtensionLinkAvoidsCrampedSummaryCard),
     ("desktop debug actions avoid horizontal overflow", DesktopDebugActionsAvoidHorizontalOverflow),
+    ("desktop exposes global output monitor panel", DesktopExposesGlobalOutputMonitorPanel),
+    ("global output monitor stays read only", GlobalOutputMonitorStaysReadOnly),
+    ("desktop exposes coverage dashboard", DesktopExposesCoverageDashboard),
     ("desktop browser sources show calibration state", DesktopBrowserSourcesShowCalibrationState),
+    ("desktop browser sources show recovery guidance", DesktopBrowserSourcesShowRecoveryGuidance),
     ("desktop exposes manual test sessions", DesktopExposesManualTestSessions),
     ("desktop new test captures mixer snapshot without rearming calibration", DesktopNewTestCapturesMixerSnapshotWithoutRearmingCalibration),
     ("desktop manual windows volume override switches target to loud", DesktopManualWindowsVolumeOverrideSwitchesTargetToLoud),
@@ -85,10 +99,21 @@ var tests = new List<(string Name, Action Test)>
     ("desktop target slider debounces save and refresh", DesktopTargetSliderDebouncesSaveAndRefresh),
     ("app config store normalizes excluded sessions", AppConfigStoreNormalizesExcludedSessions),
     ("app config store persists bridge token", AppConfigStorePersistsBridgeToken),
+    ("app config store persists stream safe mode", AppConfigStorePersistsStreamSafeMode),
     ("desktop exclusion checkbox updates on first click", DesktopExclusionCheckboxUpdatesOnFirstClick),
     ("desktop target controls are simple and generic", DesktopTargetControlsAreSimpleAndGeneric),
+    ("desktop app enforces single instance and main window shutdown", DesktopAppEnforcesSingleInstanceAndMainWindowShutdown),
+    ("desktop main window stops bridge and timers on close", DesktopMainWindowStopsBridgeAndTimersOnClose),
     ("system audio service sessions are grouped for display", SystemAudioServiceSessionsAreGroupedForDisplay),
-    ("system session group decision keeps highest risk status", SystemSessionGroupDecisionKeepsHighestRiskStatus)
+    ("system session group decision keeps highest risk status", SystemSessionGroupDecisionKeepsHighestRiskStatus),
+    ("global output level meter calculates rms and peak from samples", GlobalOutputLevelMeterCalculatesRmsAndPeakFromSamples),
+    ("global output classifier handles silent safe risky and unknown states", GlobalOutputClassifierHandlesSilentSafeRiskyAndUnknownStates),
+    ("global output unknown activity detector flags unexplained output", GlobalOutputUnknownActivityDetectorFlagsUnexplainedOutput),
+    ("global output unknown activity detector ignores known active sources", GlobalOutputUnknownActivityDetectorIgnoresKnownActiveSources),
+    ("global output log fields never include raw audio samples", GlobalOutputLogFieldsNeverIncludeRawAudioSamples),
+    ("desktop exposes guided test stream safe and obs controls", DesktopExposesGuidedTestStreamSafeAndObsControls),
+    ("desktop text catalog uses French only for French system language", DesktopTextCatalogUsesFrenchOnlyForFrenchSystemLanguage),
+    ("desktop main window uses localized text resources", DesktopMainWindowUsesLocalizedTextResources)
 };
 
 var failed = 0;
@@ -528,6 +553,134 @@ static void BrowserSourceStorePreservesRecentBrowserGainDuringObserveOnlyFlap()
     AssertEqual<DateTimeOffset?>(now.AddSeconds(-1), source.LastBrowserGainSeenUtc, "last BrowserGain timestamp should survive observe-only flap");
 }
 
+static void CoverageClassifierMarksDirectWindowsSessions()
+{
+    var session = TestSession(peak: 0.30f, volume: 0.80f, processName: "vlc", displayName: "VLC", sessionId: "vlc-session");
+
+    var summary = CoverageClassifier.BuildSummary(new[] { session }, Array.Empty<BrowserSubSourceSnapshot>());
+    var source = summary.Sources.Single(item => item.SourceId == "vlc-session");
+
+    AssertEqual(CoverageBucket.DirectControl, source.Bucket, "bucket");
+    AssertEqual(AudioSourceOrigin.WindowsSession, source.Origin, "origin");
+    AssertEqual(AudioControlSurface.WindowsSessionVolume, source.ControlSurface, "control surface");
+    AssertTrue(source.IsControllable, "Windows session should be controllable");
+    AssertEqual("OK direct", source.RecommendedAction, "action");
+    AssertEqual(1, summary.DirectCount, "direct count");
+    AssertEqual(1, summary.SecurableCount, "securable count");
+}
+
+static void CoverageClassifierMarksDirectBrowserGainSources()
+{
+    var now = DateTimeOffset.UtcNow;
+    var browser = TestBrowserSource("tab-1:media", now, browserProcess: "Brave", controlSurface: AudioControlSurface.BrowserGain, calibrationState: "locked");
+
+    var summary = CoverageClassifier.BuildSummary(Array.Empty<AudioSessionSnapshot>(), new[] { browser });
+    var source = summary.Sources.Single(item => item.SourceId == "tab-1:media");
+
+    AssertEqual(CoverageBucket.DirectControl, source.Bucket, "bucket");
+    AssertEqual(AudioSourceOrigin.BrowserExtension, source.Origin, "origin");
+    AssertEqual(AudioControlSurface.BrowserGain, source.ControlSurface, "control surface");
+    AssertTrue(source.IsControllable, "BrowserGain source should be controllable");
+    AssertEqual("OK direct", source.RecommendedAction, "action");
+    AssertEqual(1, summary.DirectCount, "direct count");
+}
+
+static void CoverageClassifierMarksBrowserSourcesNeedingUserAction()
+{
+    var now = DateTimeOffset.UtcNow;
+    var browser = TestBrowserSource(
+        "tab-2:media",
+        now,
+        controlSurface: AudioControlSurface.Unknown,
+        captureSignalState: "needs-user-action");
+
+    var summary = CoverageClassifier.BuildSummary(Array.Empty<AudioSessionSnapshot>(), new[] { browser });
+    var source = summary.Sources.Single(item => item.SourceId == "tab-2:media");
+
+    AssertEqual(CoverageBucket.NeedsUserAction, source.Bucket, "bucket");
+    AssertFalse(source.IsControllable, "needs-user-action should not be marked controllable yet");
+    AssertTrue(source.RecommendedAction.Contains("Proteger", StringComparison.OrdinalIgnoreCase), "action should tell the tester to protect the active tab");
+    AssertEqual(1, summary.NeedsActionCount, "needs action count");
+    AssertEqual(1, summary.SecurableCount, "securable count");
+}
+
+static void CoverageClassifierUsesBrowserRecommendedAction()
+{
+    var now = DateTimeOffset.UtcNow;
+    var browser = TestBrowserSource(
+        "tab-2:spotify",
+        now,
+        controlSurface: AudioControlSurface.ObserveOnly,
+        browserState: "tab-capture-no-signal",
+        reason: "tab-capture-no-signal",
+        recommendedAction: "Source observee seulement ; securiser dans OBS.");
+
+    var summary = CoverageClassifier.BuildSummary(Array.Empty<AudioSessionSnapshot>(), new[] { browser });
+    var source = summary.Sources.Single(item => item.SourceId == "tab-2:spotify");
+
+    AssertEqual(CoverageBucket.Limited, source.Bucket, "bucket");
+    AssertEqual("Source observee seulement ; securiser dans OBS.", source.RecommendedAction, "recommended action");
+}
+
+static void CoverageClassifierMarksRestrictedBrowserSourcesWithoutFallbackAsLimited()
+{
+    var now = DateTimeOffset.UtcNow;
+    var browser = TestBrowserSource(
+        "tab-3:media",
+        now,
+        controlSurface: AudioControlSurface.Unknown,
+        captureSignalState: "restricted");
+
+    var summary = CoverageClassifier.BuildSummary(Array.Empty<AudioSessionSnapshot>(), new[] { browser });
+    var source = summary.Sources.Single(item => item.SourceId == "tab-3:media");
+
+    AssertEqual(CoverageBucket.Limited, source.Bucket, "bucket");
+    AssertFalse(source.IsControllable, "restricted source without fallback should not be marked controllable");
+    AssertTrue(source.RecommendedAction.Contains("OBS", StringComparison.OrdinalIgnoreCase), "action should mention OBS or separate capture");
+    AssertEqual(1, summary.LimitedCount, "limited count");
+    AssertEqual(0, summary.SecurableCount, "securable count");
+}
+
+static void CoverageClassifierExposesWindowsFallbackForBrowserSubSources()
+{
+    var now = DateTimeOffset.UtcNow;
+    var browserParent = TestSession(peak: 0.30f, volume: 0.80f, processName: "brave", displayName: "Brave", sessionId: "brave-session");
+    var browser = TestBrowserSource(
+        "tab-4:media",
+        now,
+        browserProcess: "Brave",
+        controlSurface: AudioControlSurface.ObserveOnly,
+        calibrationState: "skipped",
+        calibrationReason: "insufficient-signal");
+
+    var summary = CoverageClassifier.BuildSummary(new[] { browserParent }, new[] { browser });
+    var source = summary.Sources.Single(item => item.SourceId == "tab-4:media");
+
+    AssertEqual(CoverageBucket.WindowsFallback, source.Bucket, "bucket");
+    AssertFalse(source.IsControllable, "browser sub-source should stay honest about direct control");
+    AssertTrue(source.HasWindowsFallback, "browser sub-source should expose Windows fallback");
+    AssertTrue(source.RecommendedAction.Contains("Fallback Windows", StringComparison.OrdinalIgnoreCase), "action should expose fallback Windows");
+    AssertEqual(1, summary.FallbackCount, "fallback count");
+    AssertEqual(1, summary.SecurableCount, "securable count");
+}
+
+static void CoverageClassifierAvoidsDoubleDirectCountForBrowserParentSessions()
+{
+    var now = DateTimeOffset.UtcNow;
+    var browserParent = TestSession(peak: 0.30f, volume: 0.80f, processName: "brave", displayName: "Brave", sessionId: "brave-session");
+    var browser = TestBrowserSource("tab-5:media", now, browserProcess: "Brave", controlSurface: AudioControlSurface.BrowserGain, calibrationState: "locked");
+
+    var summary = CoverageClassifier.BuildSummary(new[] { browserParent }, new[] { browser });
+    var parent = summary.Sources.Single(item => item.SourceId == "brave-session");
+    var tab = summary.Sources.Single(item => item.SourceId == "tab-5:media");
+
+    AssertEqual(CoverageBucket.WindowsFallback, parent.Bucket, "parent bucket");
+    AssertEqual(CoverageBucket.DirectControl, tab.Bucket, "tab bucket");
+    AssertEqual(1, summary.DirectCount, "direct count should not count both tab and browser parent as direct");
+    AssertEqual(1, summary.FallbackCount, "fallback count");
+    AssertEqual(2, summary.SecurableCount, "securable count");
+}
+
 static void BrowserGainPriorityIsDefaultAndBlocksBrowserSessionAutoCorrection()
 {
     var now = new DateTimeOffset(2026, 7, 3, 18, 0, 0, TimeSpan.Zero);
@@ -788,6 +941,131 @@ static void SystemSessionGroupDecisionKeepsHighestRiskStatus()
     AssertTrue(Math.Abs(decision.TargetVolumeScalar - 0.45f) < 0.0001f, "group average target");
     AssertTrue(decision.Reason.Contains("2 sessions système regroupées"), "group reason should mention grouped system sessions");
 }
+static void GlobalOutputLevelMeterCalculatesRmsAndPeakFromSamples()
+{
+    var measurement = GlobalOutputLevelMeter.Measure(new[] { 0.50f, -0.25f, 0.0f, 0.25f });
+
+    AssertTrue(Math.Abs(measurement.Peak - 0.50) < 0.0001, "peak scalar");
+    AssertTrue(Math.Abs(measurement.Rms - 0.3061) < 0.0002, "rms scalar");
+    AssertTrue(Math.Abs(measurement.PeakDb - -6.0) < 0.1, "peak db");
+    AssertTrue(Math.Abs(measurement.RmsDb - -10.3) < 0.1, "rms db");
+}
+
+static void GlobalOutputClassifierHandlesSilentSafeRiskyAndUnknownStates()
+{
+    var silent = GlobalOutputLevelClassifier.Classify(rmsDb: -72.0, peakDb: -66.0, isAvailable: true, errorMessage: null);
+    var safe = GlobalOutputLevelClassifier.Classify(rmsDb: -23.5, peakDb: -11.0, isAvailable: true, errorMessage: null);
+    var risky = GlobalOutputLevelClassifier.Classify(rmsDb: -15.0, peakDb: -2.5, isAvailable: true, errorMessage: null);
+    var clipping = GlobalOutputLevelClassifier.Classify(rmsDb: -9.0, peakDb: -0.2, isAvailable: true, errorMessage: null);
+    var unknown = GlobalOutputLevelClassifier.Classify(rmsDb: -18.0, peakDb: -8.0, isAvailable: false, errorMessage: "loopback unavailable");
+
+    AssertEqual(GlobalOutputState.Silent, silent.State, "silent state");
+    AssertEqual(GlobalOutputState.Safe, safe.State, "safe state");
+    AssertEqual(GlobalOutputState.Risky, risky.State, "risky state");
+    AssertEqual(GlobalOutputState.Risky, clipping.State, "clipping state");
+    AssertTrue(clipping.IsClippingPossible, "near-zero peak should flag clipping risk");
+    AssertEqual(GlobalOutputState.Unknown, unknown.State, "unknown state");
+    AssertTrue(unknown.Reason.Contains("unavailable", StringComparison.OrdinalIgnoreCase), "unknown reason should mention availability");
+}
+
+static void GlobalOutputUnknownActivityDetectorFlagsUnexplainedOutput()
+{
+    var snapshot = new GlobalOutputLevelSnapshot(
+        ObservedAtUtc: new DateTimeOffset(2026, 7, 4, 18, 30, 0, TimeSpan.Zero),
+        DeviceName: "Speakers",
+        State: GlobalOutputState.Safe,
+        RmsDb: -24.0,
+        PeakDb: -11.0,
+        RecentPeakDb: -9.0,
+        IsAvailable: true,
+        IsClippingPossible: false,
+        Reason: "level-safe",
+        ErrorMessage: null);
+
+    var decision = GlobalOutputUnknownActivityDetector.Evaluate(
+        snapshot,
+        new[] { TestSession(peak: 0.0f, volume: 0.80f, processName: "vlc", displayName: "VLC", sessionId: "vlc-session") },
+        Array.Empty<BrowserSubSourceSnapshot>());
+
+    AssertTrue(decision.IsUnknownActive, "active global output without active known source should be flagged");
+    AssertEqual("global-output-without-known-active-source", decision.Reason, "reason");
+    AssertEqual(1, decision.KnownWindowsSources, "known windows count");
+    AssertEqual(0, decision.ActiveKnownSources, "active known count");
+}
+
+static void GlobalOutputUnknownActivityDetectorIgnoresKnownActiveSources()
+{
+    var snapshot = new GlobalOutputLevelSnapshot(
+        ObservedAtUtc: new DateTimeOffset(2026, 7, 4, 18, 30, 0, TimeSpan.Zero),
+        DeviceName: "Speakers",
+        State: GlobalOutputState.Risky,
+        RmsDb: -15.0,
+        PeakDb: -3.0,
+        RecentPeakDb: -2.0,
+        IsAvailable: true,
+        IsClippingPossible: false,
+        Reason: "level-risky",
+        ErrorMessage: null);
+
+    var decision = GlobalOutputUnknownActivityDetector.Evaluate(
+        snapshot,
+        new[] { TestSession(peak: 0.15f, volume: 0.80f, processName: "vlc", displayName: "VLC", sessionId: "vlc-session") },
+        new[] { TestBrowserSource("tab-1:media", snapshot.ObservedAtUtc, controlSurface: AudioControlSurface.ObserveOnly) });
+
+    AssertFalse(decision.IsUnknownActive, "known active source should explain global output");
+    AssertEqual("known-source-active", decision.Reason, "reason");
+    AssertEqual(2, decision.KnownSources, "known source count");
+    AssertEqual(2, decision.ActiveKnownSources, "active known count");
+}
+
+static void GlobalOutputLogFieldsNeverIncludeRawAudioSamples()
+{
+    var snapshot = new GlobalOutputLevelSnapshot(
+        ObservedAtUtc: new DateTimeOffset(2026, 7, 4, 18, 0, 0, TimeSpan.Zero),
+        DeviceName: "Speakers",
+        State: GlobalOutputState.Risky,
+        RmsDb: -17.3,
+        PeakDb: -2.4,
+        RecentPeakDb: -1.9,
+        IsAvailable: true,
+        IsClippingPossible: false,
+        Reason: "peak-near-limit",
+        ErrorMessage: null);
+
+    var fields = GlobalOutputLogFields.FromSnapshot(snapshot);
+
+    AssertEqual("Speakers", fields["device"], "device field");
+    AssertEqual(GlobalOutputState.Risky.ToString(), fields["state"], "state field");
+    AssertTrue(fields.ContainsKey("rmsDb"), "rms field should be logged");
+    AssertTrue(fields.ContainsKey("peakDb"), "peak field should be logged");
+    AssertFalse(fields.ContainsKey("samples"), "samples must not be logged");
+    AssertFalse(fields.ContainsKey("rawAudio"), "raw audio must not be logged");
+    AssertFalse(fields.ContainsKey("audioBytes"), "audio bytes must not be logged");
+    AssertFalse(fields.ContainsKey("pcm"), "pcm buffers must not be logged");
+}
+
+static void DesktopTextCatalogUsesFrenchOnlyForFrenchSystemLanguage()
+{
+    AssertEqual("fr", DesktopTextCatalog.ForSystemLanguage("fr-FR").LanguageCode, "fr-FR language");
+    AssertEqual("fr", DesktopTextCatalog.ForSystemLanguage("fr-CA").LanguageCode, "fr-CA language");
+    AssertEqual("fr", DesktopTextCatalog.ForSystemLanguage("fr").LanguageCode, "fr language");
+    AssertEqual("en", DesktopTextCatalog.ForSystemLanguage("en-US").LanguageCode, "en-US language");
+    AssertEqual("en", DesktopTextCatalog.ForSystemLanguage("de-DE").LanguageCode, "de-DE language");
+    AssertEqual("en", DesktopTextCatalog.ForSystemLanguage(string.Empty).LanguageCode, "empty language");
+    AssertEqual("Intelligent local mixer for all your sources", DesktopTextCatalog.ForSystemLanguage("en-US").Subtitle, "english subtitle");
+    AssertEqual("Mixeur intelligent local pour toutes tes sources", DesktopTextCatalog.ForSystemLanguage("fr-FR").Subtitle, "french subtitle");
+}
+
+static void DesktopMainWindowUsesLocalizedTextResources()
+{
+    var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
+    AssertTrue(xaml.Contains("DynamicResource SubtitleText", StringComparison.Ordinal), "subtitle should use localized resource");
+    AssertTrue(xaml.Contains("DynamicResource AutoEnabledText", StringComparison.Ordinal), "auto checkbox should use localized resource");
+    AssertTrue(xaml.Contains("DynamicResource RefreshText", StringComparison.Ordinal), "refresh button should use localized resource");
+    AssertTrue(xaml.Contains("DynamicResource SourceHeaderText", StringComparison.Ordinal), "grid source header should use localized resource");
+    AssertTrue(xaml.Contains("DynamicResource NewTestTooltipText", StringComparison.Ordinal), "debug tooltip should use localized resource");
+}
+
 static void ActivityLogWritesSanitizedEventLine()
 {
     var directory = CreateTempDirectory();
@@ -935,6 +1213,41 @@ static void ActivityLogFormatsReadableTestReport()
             ["status"] = "Unknown",
             ["targetProfile"] = "stream"
         });
+        log.Write("coverage.summary.updated", "Coverage summary updated", new Dictionary<string, string?>
+        {
+            ["total"] = "3",
+            ["securable"] = "2",
+            ["direct"] = "1",
+            ["fallback"] = "1",
+            ["needsAction"] = "0",
+            ["limited"] = "1",
+            ["unknown"] = "0"
+        });
+        log.Write("coverage.source.classified", "Coverage source classified", new Dictionary<string, string?>
+        {
+            ["display"] = "brave",
+            ["origin"] = "WindowsSession",
+            ["controlSurface"] = "WindowsSessionVolume",
+            ["coverageStatus"] = "Direct",
+            ["coverageAction"] = "OK direct"
+        });
+        log.Write("coverage.source.fallback_available", "Coverage source can use Windows fallback", new Dictionary<string, string?>
+        {
+            ["display"] = "youtube.com",
+            ["origin"] = "BrowserExtension",
+            ["controlSurface"] = "ObserveOnly",
+            ["coverageStatus"] = "Fallback Windows",
+            ["coverageAction"] = "Fallback Windows utilise"
+        });
+        log.Write("global_output.risky", "Global output level is risky", new Dictionary<string, string?>
+        {
+            ["device"] = "Speakers",
+            ["state"] = "Risky",
+            ["rmsDb"] = "-15.0",
+            ["peakDb"] = "-2.4",
+            ["recentPeakDb"] = "-1.9",
+            ["reason"] = "level-risky"
+        });
 
         var report = log.ReadRecentReport(maxLines: 20, testSessionId: "test-report");
 
@@ -945,6 +1258,59 @@ static void ActivityLogFormatsReadableTestReport()
         AssertTrue(report.Contains("Sources navigateur visibles: 0", StringComparison.Ordinal), "browser source count");
         AssertTrue(report.Contains("Sessions Windows visibles: 3", StringComparison.Ordinal), "windows session count");
         AssertTrue(report.Contains("Extension navigateur: detectee", StringComparison.Ordinal), "extension status");
+        AssertTrue(report.Contains("Couverture", StringComparison.Ordinal), "coverage section");
+        AssertTrue(report.Contains("2/3 sources securisables", StringComparison.Ordinal), "coverage score");
+        AssertTrue(report.Contains("Direct=1", StringComparison.Ordinal), "coverage direct count");
+        AssertTrue(report.Contains("youtube.com: BrowserExtension / ObserveOnly / Fallback Windows / Fallback Windows utilise", StringComparison.Ordinal), "coverage source line");
+        AssertTrue(report.Contains("Sortie globale", StringComparison.Ordinal), "global output section");
+        AssertTrue(report.Contains("Speakers: Risky", StringComparison.Ordinal), "global output state");
+        AssertTrue(report.Contains("peak=-2.4", StringComparison.Ordinal), "global output peak");
+        AssertTrue(report.Contains("Sortie globale risquee", StringComparison.Ordinal), "global output alert");
+
+        var fallbackDirectory = CreateTempDirectory();
+        try
+        {
+            var fallbackLog = new LocalActivityLog(fallbackDirectory, testSessionId: "test-coverage-fallback");
+            fallbackLog.Write("tester.session.start", "Manual test session started", new Dictionary<string, string?>
+            {
+                ["visibleBrowserSources"] = "2",
+                ["visibleWindowsSessions"] = "1"
+            });
+            fallbackLog.Write("browser.source.received", "Browser sub-source received from local bridge", new Dictionary<string, string?>
+            {
+                ["origin"] = "BrowserExtension",
+                ["controlSurface"] = "ObserveOnly",
+                ["controllable"] = "False",
+                ["siteName"] = "tiktok.com",
+                ["status"] = "Unknown",
+                ["recoveryAction"] = "Fallback Windows ou OBS"
+            });
+
+            var fallbackReport = fallbackLog.ReadRecentReport(maxLines: 20, testSessionId: "test-coverage-fallback");
+
+            AssertTrue(fallbackReport.Contains("Couverture", StringComparison.Ordinal), "fallback coverage section");
+            AssertTrue(fallbackReport.Contains("Couverture non journalisee", StringComparison.Ordinal), "fallback coverage explanation");
+            AssertTrue(fallbackReport.Contains("tiktok.com: BrowserExtension / ObserveOnly / Non calculee / Fallback Windows ou OBS", StringComparison.Ordinal), "fallback inferred source line");
+            AssertFalse(fallbackReport.Contains("Aucune couverture calculee", StringComparison.Ordinal), "fallback report should not claim no coverage when sources exist");
+        }
+        finally
+        {
+            Directory.Delete(fallbackDirectory, recursive: true);
+        }
+
+        log.Write("global_output.unknown_active", "Global output active without known active source", new Dictionary<string, string?>
+        {
+            ["device"] = "Speakers",
+            ["state"] = "Safe",
+            ["rmsDb"] = "-24.0",
+            ["peakDb"] = "-11.0",
+            ["recentPeakDb"] = "-9.0",
+            ["reason"] = "global-output-without-known-active-source",
+            ["knownSources"] = "1",
+            ["activeKnownSources"] = "0"
+        });
+        report = log.ReadRecentReport(maxLines: 30, testSessionId: "test-report");
+        AssertTrue(report.Contains("Son global actif sans source connue active", StringComparison.Ordinal), "unknown global output alert");
         AssertTrue(report.Contains("brave | 100% -> 70% | profile-target", StringComparison.Ordinal), "formatted correction");
         AssertTrue(report.Contains("WindowsSessionVolume", StringComparison.Ordinal), "control surface");
         AssertTrue(report.Contains("Logs bruts", StringComparison.Ordinal), "raw logs section");
@@ -975,6 +1341,10 @@ static void BridgeParserAcceptsValidBrowserSourceMessage()
       "measuredRmsDb": -27.25,
       "appliedGainDb": 6.25,
       "calibrationReason": "window-complete",
+      "captureSignalState": "signal",
+      "browserState": "tab-capture-signal",
+      "reason": "stable-window-complete",
+      "recommendedAction": "BrowserGain actif via tabCapture",
       "lastSeen": "2026-07-02T12:00:00.000Z",
       "origin": "BrowserExtension",
       "controlSurface": "BrowserGain",
@@ -999,6 +1369,10 @@ static void BridgeParserAcceptsValidBrowserSourceMessage()
     AssertEqual(-27.25f, source.MeasuredRmsDb, "measured rms");
     AssertEqual(6.25f, source.AppliedGainDb, "applied gain db");
     AssertEqual("window-complete", source.CalibrationReason, "calibration reason");
+    AssertEqual("signal", source.CaptureSignalState, "capture signal state");
+    AssertEqual("tab-capture-signal", source.BrowserState, "browser state");
+    AssertEqual("stable-window-complete", source.Reason, "browser reason");
+    AssertEqual("BrowserGain actif via tabCapture", source.RecommendedAction, "browser action");
     AssertTrue(source.IsControllable, "browser gain source should be controllable");
 }
 
@@ -1062,6 +1436,7 @@ static void AppConfigStoreReturnsDefaultWhenMissing()
 
         AssertFalse(config.AutoEnabled, "auto should be disabled by default");
         AssertFalse(config.DarkThemeEnabled, "dark theme should be disabled by default");
+        AssertFalse(config.StreamSafeEnabled, "stream safe should be disabled by default");
         AssertEqual(0, config.ExcludedSessionIds.Count, "default exclusions");
     }
     finally
@@ -1184,6 +1559,28 @@ static void AppConfigStorePersistsBridgeToken()
     }
 }
 
+static void AppConfigStorePersistsStreamSafeMode()
+{
+    var directory = CreateTempDirectory();
+    try
+    {
+        var store = new JsonAppConfigStore(Path.Combine(directory, "config.json"));
+
+        store.Save(new AppConfig
+        {
+            StreamSafeEnabled = true
+        });
+
+        var loaded = store.Load();
+
+        AssertTrue(loaded.StreamSafeEnabled, "stream safe should persist");
+    }
+    finally
+    {
+        Directory.Delete(directory, recursive: true);
+    }
+}
+
 static void DesktopExclusionCheckboxUpdatesOnFirstClick()
 {
     var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
@@ -1198,10 +1595,10 @@ static void DesktopTargetControlsAreSimpleAndGeneric()
     var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
     var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
 
-    AssertTrue(xaml.Contains("Cible volume", StringComparison.Ordinal), "target volume label should be visible");
-    AssertTrue(xaml.Contains("Calme", StringComparison.Ordinal), "quiet target mode should be visible");
-    AssertTrue(xaml.Contains("Standard", StringComparison.Ordinal), "standard target mode should be visible");
-    AssertTrue(xaml.Contains("Fort", StringComparison.Ordinal), "loud target mode should be visible");
+    AssertTrue(xaml.Contains("DynamicResource TargetVolumeTitleText", StringComparison.Ordinal), "target volume label should be localized");
+    AssertTrue(xaml.Contains("DynamicResource TargetQuietText", StringComparison.Ordinal), "quiet target mode should be localized");
+    AssertTrue(xaml.Contains("DynamicResource TargetStandardText", StringComparison.Ordinal), "standard target mode should be localized");
+    AssertTrue(xaml.Contains("DynamicResource TargetLoudText", StringComparison.Ordinal), "loud target mode should be localized");
     AssertTrue(xaml.Contains("TargetPresetButtonStyle", StringComparison.Ordinal), "target presets should have a dedicated active style");
     AssertTrue(xaml.Contains("TargetQuietButton", StringComparison.Ordinal), "quiet target button should be named for active styling");
     AssertTrue(xaml.Contains("TargetStandardButton", StringComparison.Ordinal), "standard target button should be named for active styling");
@@ -1215,6 +1612,25 @@ static void DesktopTargetControlsAreSimpleAndGeneric()
     AssertFalse(xaml.Contains("pour streamers", StringComparison.OrdinalIgnoreCase), "subtitle should address everyone, not only streamers");
 }
 
+static void DesktopExposesGuidedTestStreamSafeAndObsControls()
+{
+    var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
+    var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
+
+    AssertTrue(xaml.Contains("DynamicResource StreamSafeText", StringComparison.Ordinal), "desktop should expose localized Stream Safe mode");
+    AssertTrue(xaml.Contains("DynamicResource GuidedStartText", StringComparison.Ordinal), "desktop should expose localized guided test start");
+    AssertTrue(xaml.Contains("DynamicResource GuidedNextText", StringComparison.Ordinal), "desktop should expose localized guided test next step");
+    AssertTrue(xaml.Contains("DynamicResource ObsGuideText", StringComparison.Ordinal), "desktop should expose localized OBS setup guide");
+    AssertTrue(xaml.Contains("{Binding GuidedTestStatusText}", StringComparison.Ordinal), "guided test status should be bound");
+    AssertTrue(codeBehind.Contains("StreamSafe_Changed", StringComparison.Ordinal), "stream safe toggle should have a handler");
+    AssertTrue(codeBehind.Contains("guided_test.started", StringComparison.Ordinal), "guided test start should be logged");
+    AssertTrue(codeBehind.Contains("guided_test.step", StringComparison.Ordinal), "guided test step should be logged");
+    AssertTrue(codeBehind.Contains("guided_test.completed", StringComparison.Ordinal), "guided test completion should be logged");
+    AssertTrue(codeBehind.Contains("obs.guide.opened", StringComparison.Ordinal), "OBS guide opening should be logged");
+    AssertTrue(codeBehind.Contains("stream_safe.enabled", StringComparison.Ordinal), "Stream Safe enable should be logged");
+    AssertTrue(codeBehind.Contains("GlobalTargetSettings.StandardProfile", StringComparison.Ordinal), "Stream Safe should use the stable Standard target");
+}
+
 static void DesktopShowsExtensionLinkAsConnectedOrStandalone()
 {
     var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
@@ -1225,8 +1641,8 @@ static void DesktopShowsExtensionLinkAsConnectedOrStandalone()
     AssertTrue(codeBehind.Contains("public string ExtensionLinkText", StringComparison.Ordinal), "desktop should expose extension link text to the UI");
     AssertTrue(codeBehind.Contains("MarkExtensionSeen(DateTimeOffset.UtcNow)", StringComparison.Ordinal), "bridge handlers should mark the extension as seen");
     AssertTrue(codeBehind.Contains("UpdateExtensionLinkText(DateTimeOffset.UtcNow)", StringComparison.Ordinal), "refresh should expire the extension connection status");
-    AssertTrue(codeBehind.Contains("App seule", StringComparison.Ordinal), "desktop should make standalone mode clear");
-    AssertTrue(codeBehind.Contains("Extension connectee", StringComparison.Ordinal), "desktop should make the connected extension state clear");
+    AssertTrue(codeBehind.Contains("textCatalog.ExtensionStandaloneGlobal", StringComparison.Ordinal), "desktop should make standalone mode clear through localization");
+    AssertTrue(codeBehind.Contains("textCatalog.ExtensionConnected", StringComparison.Ordinal), "desktop should make the connected extension state clear through localization");
 }
 
 static void DesktopExtensionLinkAvoidsCrampedSummaryCard()
@@ -1248,23 +1664,93 @@ static void DesktopDebugActionsAvoidHorizontalOverflow()
     AssertFalse(xaml.Contains("TextWrapping=\"Wrap\" Margin=\"0,4,0,0\"", StringComparison.Ordinal), "debug status text should not wrap into tall rows");
 }
 
+static void DesktopExposesGlobalOutputMonitorPanel()
+{
+    var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
+    var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
+
+    AssertTrue(xaml.Contains("DynamicResource GlobalOutputTitleText", StringComparison.Ordinal), "desktop should expose the localized global output panel");
+    AssertTrue(xaml.Contains("{Binding GlobalOutputStateText}", StringComparison.Ordinal), "global output state should be bound");
+    AssertTrue(xaml.Contains("{Binding GlobalOutputLevelText}", StringComparison.Ordinal), "global output RMS should be bound");
+    AssertTrue(xaml.Contains("{Binding GlobalOutputPeakText}", StringComparison.Ordinal), "global output peak should be bound");
+    AssertTrue(xaml.Contains("{Binding GlobalOutputDeviceText}", StringComparison.Ordinal), "global output device should be bound");
+    AssertTrue(codeBehind.Contains("StartGlobalOutputMonitor", StringComparison.Ordinal), "desktop should start the global output monitor");
+    AssertTrue(codeBehind.Contains("global_output.monitor.started", StringComparison.Ordinal), "desktop should log monitor start");
+    AssertTrue(codeBehind.Contains("global_output.level", StringComparison.Ordinal), "desktop should log throttled global output levels");
+    AssertTrue(codeBehind.Contains("GlobalOutputLevelLogInterval", StringComparison.Ordinal), "global output level logs should be throttled");
+}
+
+static void GlobalOutputMonitorStaysReadOnly()
+{
+    var source = File.ReadAllText(FindRepositoryFilePath(Path.Combine("apps", "desktop", "src", "StreamVolumeGuard.WindowsAudio", "GlobalOutputMonitor.cs")));
+
+    AssertTrue(source.Contains("WasapiLoopbackCapture", StringComparison.Ordinal), "global output monitor should use loopback capture");
+    AssertTrue(source.Contains("DataFlow.Render", StringComparison.Ordinal), "global output monitor should observe the render endpoint");
+    AssertFalse(source.Contains("MasterVolume", StringComparison.OrdinalIgnoreCase), "global output monitor must not control master volume");
+    AssertFalse(source.Contains("SimpleAudioVolume", StringComparison.OrdinalIgnoreCase), "global output monitor must not control app session volume");
+    AssertFalse(source.Contains("SetVolume", StringComparison.OrdinalIgnoreCase), "global output monitor must not set any volume");
+}
+
+static void DesktopExposesCoverageDashboard()
+{
+    var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
+    var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
+
+    AssertTrue(xaml.Contains("DynamicResource CoverageTitleText", StringComparison.Ordinal), "dashboard should label the localized coverage section");
+    AssertTrue(xaml.Contains("{Binding CoverageScoreText}", StringComparison.Ordinal), "coverage score should be bound");
+    AssertTrue(xaml.Contains("{Binding CoverageDetailText}", StringComparison.Ordinal), "coverage detail should be bound");
+    AssertTrue(xaml.Contains("Header=\"{DynamicResource CoverageHeaderText}\"", StringComparison.Ordinal), "source tables should expose localized coverage status");
+    AssertTrue(xaml.Contains("Binding=\"{Binding CoverageStatus}\"", StringComparison.Ordinal), "source rows should bind coverage status");
+    AssertTrue(xaml.Contains("Header=\"{DynamicResource CoverageActionHeaderText}\"", StringComparison.Ordinal), "source tables should expose localized coverage action");
+    AssertTrue(xaml.Contains("Binding=\"{Binding CoverageAction}\"", StringComparison.Ordinal), "source rows should bind coverage action");
+    AssertTrue(codeBehind.Contains("CoverageClassifier.BuildSummary", StringComparison.Ordinal), "desktop should compute coverage from Core classifier");
+    AssertTrue(codeBehind.Contains("coverage.summary.updated", StringComparison.Ordinal), "desktop should log coverage summary updates");
+    AssertTrue(codeBehind.Contains("coverage.source.classified", StringComparison.Ordinal), "desktop should log source coverage classification");
+    AssertTrue(codeBehind.Contains("coverage.source.action_required", StringComparison.Ordinal), "desktop should log sources needing user action");
+    AssertTrue(codeBehind.Contains("coverage.source.fallback_available", StringComparison.Ordinal), "desktop should log fallback availability");
+    AssertTrue(codeBehind.Contains("coverage.source.limited", StringComparison.Ordinal), "desktop should log limited sources");
+    AssertTrue(codeBehind.Contains("public string CoverageStatus", StringComparison.Ordinal), "session and browser rows should expose coverage status");
+    AssertTrue(codeBehind.Contains("public string CoverageAction", StringComparison.Ordinal), "session and browser rows should expose coverage action");
+}
+
 static void DesktopBrowserSourcesShowCalibrationState()
 {
     var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
     var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
 
-    AssertTrue(xaml.Contains("Header=\"Calibration\"", StringComparison.Ordinal), "browser source table should show BrowserGain calibration state");
+    AssertTrue(xaml.Contains("Header=\"{DynamicResource CalibrationHeaderText}\"", StringComparison.Ordinal), "browser source table should show BrowserGain calibration state");
     AssertTrue(xaml.Contains("Binding=\"{Binding Calibration}\"", StringComparison.Ordinal), "browser source calibration column should bind to row state");
     AssertTrue(codeBehind.Contains("public string Calibration", StringComparison.Ordinal), "browser source row should expose calibration text");
     AssertTrue(codeBehind.Contains("source.CalibrationState", StringComparison.Ordinal), "browser source row should use the source calibration state");
 }
 
+
+static void DesktopBrowserSourcesShowRecoveryGuidance()
+{
+    var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
+    var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
+
+    AssertTrue(xaml.Contains("Header=\"{DynamicResource ReasonHeaderText}\"", StringComparison.Ordinal), "browser source table should show why direct control is unavailable");
+    AssertTrue(xaml.Contains("Binding=\"{Binding BrowserIssueReason}\"", StringComparison.Ordinal), "browser source reason column should bind to row state");
+    AssertTrue(xaml.Contains("Header=\"{DynamicResource ActionHeaderText}\"", StringComparison.Ordinal), "browser source table should show the next tester action");
+    AssertTrue(xaml.Contains("Binding=\"{Binding RecoveryAction}\"", StringComparison.Ordinal), "browser source action column should bind to row state");
+    AssertTrue(codeBehind.Contains("public string BrowserIssueReason", StringComparison.Ordinal), "browser source row should expose issue reason text");
+    AssertTrue(codeBehind.Contains("public string RecoveryAction", StringComparison.Ordinal), "browser source row should expose recovery action text");
+    AssertTrue(codeBehind.Contains("source.CaptureSignalState", StringComparison.Ordinal), "browser source row should use capture signal diagnostics");
+    AssertTrue(codeBehind.Contains("source.CalibrationReason", StringComparison.Ordinal), "browser source row should use calibration reason diagnostics");
+    AssertTrue(codeBehind.Contains("source.BrowserState", StringComparison.Ordinal), "browser source row should use browser state diagnostics");
+    AssertTrue(codeBehind.Contains("source.Reason", StringComparison.Ordinal), "browser source row should use browser reason diagnostics");
+    AssertTrue(codeBehind.Contains("source.RecommendedAction", StringComparison.Ordinal), "browser source row should use browser recommended action diagnostics");
+    AssertTrue(codeBehind.Contains("needs-user-action", StringComparison.Ordinal), "browser source row should guide tabs that still need explicit user activation");
+    AssertTrue(codeBehind.Contains("restricted", StringComparison.Ordinal), "browser source row should explain restricted browser pages");
+    AssertTrue(codeBehind.Contains("unsupported", StringComparison.Ordinal), "browser source row should explain unsupported browser capture");
+}
 static void DesktopExposesManualTestSessions()
 {
     var xaml = File.ReadAllText(FindDesktopMainWindowXamlPath());
     var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
 
-    AssertTrue(xaml.Contains("Nouveau test", StringComparison.Ordinal), "desktop should expose a clear new-test action");
+    AssertTrue(xaml.Contains("DynamicResource NewTestText", StringComparison.Ordinal), "desktop should expose a localized clear new-test action");
     AssertTrue(codeBehind.Contains("NewTestSession_Click", StringComparison.Ordinal), "desktop should handle new manual test sessions");
     AssertTrue(codeBehind.Contains("StartNewTestSession", StringComparison.Ordinal), "desktop should rotate the current log test session");
     AssertTrue(codeBehind.Contains("tester.session.start", StringComparison.Ordinal), "desktop should log when a new manual test session starts");
@@ -1354,6 +1840,8 @@ static void TesterPackageHasReproducibleWindowsLauncher()
     AssertTrue(script.Contains("apps\\browser-extension", StringComparison.OrdinalIgnoreCase), "tester package script should copy the loadable browser extension");
     AssertTrue(script.Contains("release-assets", StringComparison.OrdinalIgnoreCase), "tester package script should exclude generated release assets");
     AssertTrue(script.Contains("Compress-Archive", StringComparison.OrdinalIgnoreCase), "tester package script should create a shareable zip");
+    AssertTrue(script.Contains("--self-contained true", StringComparison.OrdinalIgnoreCase), "tester package should not require testers to install the .NET runtime");
+    AssertTrue(script.Contains("Get-FileHash", StringComparison.OrdinalIgnoreCase), "tester package script should write a SHA256 checksum for the zip");
     AssertTrue(script.Contains("0.1.0-alpha.1", StringComparison.OrdinalIgnoreCase), "tester package script should default to the first alpha tester version");
     AssertFalse(script.Contains("git tag", StringComparison.OrdinalIgnoreCase), "tester package script must not create git tags");
     AssertFalse(script.Contains("gh release", StringComparison.OrdinalIgnoreCase), "tester package script must not create GitHub releases");
@@ -1478,6 +1966,36 @@ static void DesktopTargetSliderDebouncesSaveAndRefresh()
     AssertTrue(commitMethod.Contains("activityLog.Write(\"target.changed\"", StringComparison.Ordinal), "debounced commit should write a single target change log");
 }
 
+static void DesktopAppEnforcesSingleInstanceAndMainWindowShutdown()
+{
+    var appXaml = File.ReadAllText(FindDesktopAppXamlPath());
+    var appCode = File.ReadAllText(FindDesktopAppCodeBehindPath());
+
+    AssertTrue(appXaml.Contains("ShutdownMode=\"OnMainWindowClose\"", StringComparison.Ordinal), "desktop app should exit when the main window closes");
+    AssertTrue(appCode.Contains("Mutex", StringComparison.Ordinal), "desktop app should use a named mutex to prevent ghost duplicate instances");
+    AssertTrue(appCode.Contains("Local\\\\StreamVolumeGuardHubDesktop", StringComparison.Ordinal), "desktop app should use a stable local single-instance mutex name");
+    AssertTrue(appCode.Contains("Shutdown(0);", StringComparison.Ordinal), "duplicate desktop instances should exit cleanly");
+    AssertTrue(appCode.Contains("ReleaseMutex()", StringComparison.Ordinal), "desktop app should release the single-instance mutex on exit");
+}
+
+static void DesktopMainWindowStopsBridgeAndTimersOnClose()
+{
+    var codeBehind = File.ReadAllText(FindDesktopMainWindowCodeBehindPath());
+    var methodStart = codeBehind.IndexOf("protected override void OnClosed(EventArgs e)", StringComparison.Ordinal);
+    var nextMethod = codeBehind.IndexOf("private void LoadLocalConfig()", StringComparison.Ordinal);
+
+    AssertTrue(methodStart >= 0 && nextMethod > methodStart, "OnClosed should be readable");
+
+    var method = codeBehind[methodStart..nextMethod];
+    AssertTrue(method.Contains("targetSliderDebounceTimer.Stop();", StringComparison.Ordinal), "closing should stop the target slider debounce timer");
+    AssertTrue(method.Contains("timer.Stop();", StringComparison.Ordinal), "closing should stop the session refresh timer");
+    AssertTrue(method.Contains("browserBridgeServer.SourceReceived -= BrowserBridge_SourceReceived;", StringComparison.Ordinal), "closing should detach browser source events");
+    AssertTrue(method.Contains("browserBridgeServer.ExtensionLogReceived -= BrowserBridge_ExtensionLogReceived;", StringComparison.Ordinal), "closing should detach extension log events");
+    AssertTrue(method.Contains("browserBridgeServer.Stop();", StringComparison.Ordinal), "closing should stop the local browser bridge");
+    AssertTrue(method.Contains("browserBridgeServer.Dispose();", StringComparison.Ordinal), "closing should dispose the local browser bridge");
+    AssertTrue(method.Contains("Application.Current.Shutdown();", StringComparison.Ordinal), "closing should explicitly terminate the WPF app after cleanup");
+}
+
 static void BridgeHttpParserKeepsUtf8BodyByByteLength()
 {
     const string body = "{\"type\":\"browser_source_observed\",\"title\":\"électricité\"}";
@@ -1564,7 +2082,12 @@ static BrowserSubSourceSnapshot TestBrowserSource(
     AudioControlSurface controlSurface = AudioControlSurface.BrowserGain,
     AudioSessionStatus status = AudioSessionStatus.Safe,
     DateTimeOffset? lastBrowserGainSeenUtc = null,
-    string calibrationState = "")
+    string calibrationState = "",
+    string captureSignalState = "",
+    string calibrationReason = "",
+    string browserState = "",
+    string reason = "",
+    string recommendedAction = "")
 {
     return new BrowserSubSourceSnapshot(
         SourceId: sourceId,
@@ -1579,7 +2102,12 @@ static BrowserSubSourceSnapshot TestBrowserSource(
         ControlSurface: controlSurface,
         LastSeenUtc: lastSeen,
         LastBrowserGainSeenUtc: lastBrowserGainSeenUtc,
-        CalibrationState: calibrationState);
+        CalibrationState: calibrationState,
+        CaptureSignalState: captureSignalState,
+        CalibrationReason: calibrationReason,
+        BrowserState: browserState,
+        Reason: reason,
+        RecommendedAction: recommendedAction);
 }
 static AudioSessionSnapshot TestSession(
     float peak,
@@ -1655,6 +2183,52 @@ static string FindDesktopMainWindowCodeBehindPath()
     }
 
     throw new FileNotFoundException("MainWindow.xaml.cs was not found from the test base directory.");
+}
+
+static string FindDesktopAppXamlPath()
+{
+    var current = new DirectoryInfo(AppContext.BaseDirectory);
+    while (current is not null)
+    {
+        var candidate = Path.Combine(current.FullName, "src", "StreamVolumeGuard.App", "App.xaml");
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        candidate = Path.Combine(current.FullName, "apps", "desktop", "src", "StreamVolumeGuard.App", "App.xaml");
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        current = current.Parent;
+    }
+
+    throw new FileNotFoundException("App.xaml was not found from the test base directory.");
+}
+
+static string FindDesktopAppCodeBehindPath()
+{
+    var current = new DirectoryInfo(AppContext.BaseDirectory);
+    while (current is not null)
+    {
+        var candidate = Path.Combine(current.FullName, "src", "StreamVolumeGuard.App", "App.xaml.cs");
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        candidate = Path.Combine(current.FullName, "apps", "desktop", "src", "StreamVolumeGuard.App", "App.xaml.cs");
+        if (File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        current = current.Parent;
+    }
+
+    throw new FileNotFoundException("App.xaml.cs was not found from the test base directory.");
 }
 
 static string FindLocalBrowserBridgeServerPath()

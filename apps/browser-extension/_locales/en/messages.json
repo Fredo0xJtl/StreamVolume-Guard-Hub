@@ -61,6 +61,9 @@
   "popupDesktopStandalone": {
     "message": "Standalone mode"
   },
+  "popupWindowsControl": {
+    "message": "Windows control"
+  },
   "popupProtectTab": {
     "message": "Protect this tab"
   },
@@ -261,6 +264,18 @@
   },
   "diagnosticCaptureNoSignal": {
     "message": "Capture active, but no audio signal detected"
+  },
+  "diagnosticDesktopFallbackActive": {
+    "message": "Windows control"
+  },
+  "diagnosticDesktopFallbackDetail": {
+    "message": "The extension can observe this tab, but volume will be adjusted through the browser's Windows mixer."
+  },
+  "diagnosticStandaloneMediaHtmlLimit": {
+    "message": "HTML media limit"
+  },
+  "diagnosticStandaloneMediaHtmlLimitDetail": {
+    "message": "No controllable HTML media is detected in standalone mode. Try reloading the page, or launch the desktop app for Windows fallback."
   },
   "diagnosticPanicActive": {
     "message": "Panic cap active"

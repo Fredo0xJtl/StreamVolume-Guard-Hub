@@ -63,7 +63,7 @@ La base actuelle contient le contrat protocole, le modele desktop de sous-source
 
 Le comportement attendu est donc : afficher les sessions Windows reelles, afficher les sous-sources navigateur simulees quand aucune extension n'est connectee, recevoir les sous-sources navigateur reelles quand l'extension envoie ses evenements, synchroniser la cible voulue vers les onglets deja proteges, afficher `App seule` ou `Extension connectee` cote desktop, afficher `Mode autonome` ou `App connectee` cote extension, et garder les sources non controlables explicites.
 
-Le protocole transporte les informations necessaires a une calibration navigateur fine : `currentLevel`, `appliedGain`, `targetRmsDb`, `targetProfile`, `controlSurface`, `isControllable`, `calibrationState`, `measuredRmsDb` et `appliedGainDb`. Quand une source navigateur est `BrowserGain` avec un signal exploitable, l'extension peut mesurer, appliquer un gain une fois, verrouiller, puis rearmer proprement. Le desktop evite alors les corrections automatiques concurrentes du volume Windows global du meme navigateur, sauf changement volontaire de cible ou fallback necessaire avant verrouillage.
+Le protocole transporte les informations necessaires a une calibration navigateur fine : `currentLevel`, `appliedGain`, `targetRmsDb`, `targetProfile`, `controlSurface`, `isControllable`, `calibrationState`, `measuredRmsDb`, `appliedGainDb`, `calibrationReason` et `captureSignalState`. Quand une source navigateur est `BrowserGain` avec un signal exploitable, l'extension peut mesurer, appliquer un gain une fois, verrouiller, puis rearmer proprement. Sur Chromium, la protection d'un onglet commence par `media-html` quand un lecteur web est accessible, puis peut tenter `tabCapture` generiquement si le media HTML reste muet alors que l'onglet est audible. Le desktop evite alors les corrections automatiques concurrentes du volume Windows global du meme navigateur, sauf changement volontaire de cible ou fallback necessaire avant verrouillage.
 
 ## Fonctionnement Seul Ou Ensemble
 
@@ -81,7 +81,7 @@ Le protocole transporte les informations necessaires a une calibration navigateu
 - Fonctionne sans desktop et affiche `Mode autonome`.
 - Detecte et protege les medias web quand le navigateur le permet.
 - Peut appliquer `BrowserGain` dans l'onglet/site si la source est controlable.
-- Classe honnetement en `ObserveOnly` ou `Unknown` quand elle ne peut pas agir.
+- Classe honnetement en `ObserveOnly` ou `Unknown` quand elle ne peut pas agir, avec `needs-user-action`, `restricted`, `unsupported`, `no-signal` ou `skipped` quand c'est la vraie raison.
 - N'envoie pas d'audio brut, d'URL complete, d'historique navigateur ou de telemetrie.
 
 ### Desktop + extension

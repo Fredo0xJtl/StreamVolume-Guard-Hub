@@ -13,6 +13,16 @@ const CONTROL_SURFACES = Object.freeze({
 });
 
 const STATUSES = Object.freeze(["Safe", "Risky", "Low", "Muted", "Excluded", "Unknown"]);
+const BROWSER_STATES = Object.freeze([
+  "media-html-starting",
+  "media-html-signal",
+  "media-html-no-signal",
+  "tab-capture-starting",
+  "tab-capture-signal",
+  "tab-capture-no-signal",
+  "observe-only",
+  "desktop-fallback-available"
+]);
 const TARGET_PROFILES = Object.freeze(["Calme", "Standard", "Fort", "Personnalise"]);
 const CALIBRATION_STATES = Object.freeze(["", "measuring", "applied", "locked", "skipped", "rearmed"]);
 const LOG_SEVERITIES = Object.freeze(["debug", "info", "warn", "error"]);
@@ -48,6 +58,10 @@ function normalizeBrowserSourceMessage(message) {
     measuredRmsDb: normalizeOptionalAudioDb(message.measuredRmsDb),
     appliedGainDb: normalizeOptionalGainDb(message.appliedGainDb),
     calibrationReason: normalizeOptionalString(message.calibrationReason),
+    captureSignalState: normalizeOptionalString(message.captureSignalState),
+    browserState: normalizeBrowserState(message.browserState),
+    reason: redactUrlLikeText(message.reason),
+    recommendedAction: redactUrlLikeText(message.recommendedAction),
     targetRmsDb: normalizeOptionalTargetDb(message.targetRmsDb),
     targetProfile: normalizeOptionalString(message.targetProfile),
     status,
@@ -114,6 +128,7 @@ function normalizeExtensionLogMessage(message) {
     measuredRmsDb: normalizeOptionalAudioDb(message.measuredRmsDb),
     appliedGainDb: normalizeOptionalGainDb(message.appliedGainDb),
     calibrationReason: normalizeOptionalString(message.calibrationReason),
+    captureSignalState: normalizeOptionalString(message.captureSignalState),
     targetRmsDb: normalizeOptionalTargetDb(message.targetRmsDb),
     targetProfile: normalizeOptionalString(message.targetProfile),
     lastSeen: normalizeTimestamp(message.lastSeen)
@@ -147,6 +162,11 @@ function normalizeEventName(value) {
 function normalizeSeverity(value) {
   const normalized = normalizeOptionalString(value).toLowerCase();
   return LOG_SEVERITIES.includes(normalized) ? normalized : "info";
+}
+
+function normalizeBrowserState(value) {
+  const normalized = normalizeOptionalString(value);
+  return BROWSER_STATES.includes(normalized) ? normalized : "";
 }
 
 function normalizeCalibrationState(value) {
@@ -232,6 +252,7 @@ module.exports = {
   SOURCE_ORIGINS,
   CONTROL_SURFACES,
   STATUSES,
+  BROWSER_STATES,
   CALIBRATION_STATES,
   LOG_SEVERITIES,
   TARGET_PROFILES,

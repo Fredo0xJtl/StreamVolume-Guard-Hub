@@ -57,7 +57,11 @@ public static class BrowserBridgeMessageParser
             CalibrationState: OptionalCalibrationState(root, "calibrationState"),
             MeasuredRmsDb: OptionalCalibrationDecibels(root, "measuredRmsDb"),
             AppliedGainDb: OptionalGainDecibels(root, "appliedGainDb"),
-            CalibrationReason: OptionalString(root, "calibrationReason", string.Empty));
+            CaptureSignalState: OptionalString(root, "captureSignalState", string.Empty),
+            CalibrationReason: OptionalString(root, "calibrationReason", string.Empty),
+            BrowserState: OptionalString(root, "browserState", string.Empty),
+            Reason: OptionalString(root, "reason", string.Empty),
+            RecommendedAction: OptionalString(root, "recommendedAction", string.Empty));
     }
 
     public static ExtensionLogEntry ParseExtensionLog(string json)

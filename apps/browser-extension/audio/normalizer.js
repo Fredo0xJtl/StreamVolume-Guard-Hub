@@ -29,6 +29,8 @@
   const GAIN_CONTROL_RELEASE_MULTIPLIER = 2;
   const GAIN_CONTROL_MIN_ATTACK_MS = 180;
   const GAIN_CONTROL_MIN_RELEASE_MS = 1400;
+  const DESKTOP_BROWSER_GAIN_MEASUREMENT_WINDOW_MS = 18000;
+  const DESKTOP_BROWSER_GAIN_MIN_USABLE_SIGNAL_MS = 8000;
 
   function calculateTargetGainDb(options) {
     const currentRmsDb = Number(options.currentRmsDb);
@@ -91,6 +93,40 @@
       Boolean(previousSettings.limiterEnabled) !== Boolean(nextSettings.limiterEnabled);
   }
 
+  function finitePositiveNumber(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : fallback;
+  }
+
+  function getBrowserGainCalibrationOptions(sourceSettings) {
+    return {
+      measurementWindowMs: finitePositiveNumber(
+        sourceSettings && sourceSettings.browserGainMeasurementWindowMs,
+        DESKTOP_BROWSER_GAIN_MEASUREMENT_WINDOW_MS
+      ),
+      minUsableSignalMs: finitePositiveNumber(
+        sourceSettings && sourceSettings.browserGainMinUsableSignalMs,
+        DESKTOP_BROWSER_GAIN_MIN_USABLE_SIGNAL_MS
+      )
+    };
+  }
+
+  function shouldUseBrowserGainCalibration(sourceSettings) {
+    return Boolean(sourceSettings && sourceSettings.desktopBridgeConnected);
+  }
+
+  function createBrowserGainCalibrationForSettings(sourceSettings) {
+    if (!shouldUseBrowserGainCalibration(sourceSettings)) return null;
+    if (!BrowserGainCalibration || !BrowserGainCalibration.createBrowserGainCalibration) return null;
+    return BrowserGainCalibration.createBrowserGainCalibration(getBrowserGainCalibrationOptions(sourceSettings));
+  }
+
+  function getBrowserGainCalibrationSignature(sourceSettings) {
+    if (!shouldUseBrowserGainCalibration(sourceSettings)) return "standalone-direct-gain";
+    const options = getBrowserGainCalibrationOptions(sourceSettings);
+    return `${options.measurementWindowMs}|${options.minUsableSignalMs}`;
+  }
+
   function createSourceNormalizer(createSource, media, settings, hooks) {
     const AudioContextClass = root.AudioContext || root.webkitAudioContext;
     if (!AudioContextClass) {
@@ -114,9 +150,9 @@
     const buffer = new Float32Array(2048);
     const outputBuffer = new Float32Array(2048);
     const callbacks = hooks || {};
-    const browserGainCalibration = BrowserGainCalibration && BrowserGainCalibration.createBrowserGainCalibration
-      ? BrowserGainCalibration.createBrowserGainCalibration()
-      : null;
+    let browserGainCalibration = createBrowserGainCalibrationForSettings(runtimeSettings);
+    let browserGainCalibrationSignature = getBrowserGainCalibrationSignature(runtimeSettings);
+    const initialUsesBrowserGainCalibration = shouldUseBrowserGainCalibration(runtimeSettings);
 
     let rafId = null;
     let timerId = null;
@@ -147,7 +183,7 @@
     let lastSettingsApplyMs = 0;
     let settingsReentryUntilMs = 0;
     let mediaSeekReleaseTimer = null;
-    let calibrationState = "measuring";
+    let calibrationState = initialUsesBrowserGainCalibration ? "measuring" : "";
     let calibrationMeasuredRmsDb = null;
     let calibrationAppliedGainDb = null;
     let calibrationReason = "";
@@ -302,6 +338,34 @@
     function getCalibrationSourceKey() {
       if (!media) return "tab-capture";
       return `media-html:${media.tagName || "media"}`;
+    }
+
+    function refreshBrowserGainCalibrationForSettings(sourceSettings) {
+      if (!shouldUseBrowserGainCalibration(sourceSettings)) {
+        browserGainCalibration = null;
+        browserGainCalibrationSignature = getBrowserGainCalibrationSignature(sourceSettings);
+        calibrationState = "";
+        calibrationMeasuredRmsDb = null;
+        calibrationAppliedGainDb = null;
+        calibrationReason = "";
+        return;
+      }
+
+      if (!BrowserGainCalibration || !BrowserGainCalibration.createBrowserGainCalibration) {
+        browserGainCalibration = null;
+        browserGainCalibrationSignature = getBrowserGainCalibrationSignature(sourceSettings);
+        return;
+      }
+
+      const nextSignature = getBrowserGainCalibrationSignature(sourceSettings);
+      if (browserGainCalibration && nextSignature === browserGainCalibrationSignature) return;
+
+      browserGainCalibration = createBrowserGainCalibrationForSettings(sourceSettings);
+      browserGainCalibrationSignature = nextSignature;
+      calibrationState = "measuring";
+      calibrationMeasuredRmsDb = null;
+      calibrationAppliedGainDb = null;
+      calibrationReason = "calibration-mode-changed";
     }
 
     function getCalibrationTargetSignature() {
@@ -784,6 +848,7 @@
       const previousTargetRmsDb = profile.targetRmsDb;
       runtimeSettings = Settings.normalizeSettings(nextSettings);
       profile = Settings.getRuntimeProfile(runtimeSettings);
+      refreshBrowserGainCalibrationForSettings(runtimeSettings);
       if (graphStarted) {
         configureCompressor(compressor, profile);
         configureLimiter(limiter, profile.limiterCeilingDb);
@@ -795,10 +860,40 @@
         outputTrimHoldUntilMs = Math.max(outputTrimHoldUntilMs, context.currentTime * 1000 + JUMP_OUTPUT_TRIM_HOLD_MS);
         settingsReentryUntilMs = context.currentTime * 1000 + SETTINGS_REENTRY_GRACE_MS;
         if (processingEnabled && previousTargetRmsDb !== profile.targetRmsDb) {
-          calibrationState = "measuring";
-          calibrationMeasuredRmsDb = null;
-          calibrationAppliedGainDb = null;
-          calibrationReason = "target-changed";
+          if (browserGainCalibration) {
+            calibrationState = "measuring";
+            calibrationMeasuredRmsDb = null;
+            calibrationAppliedGainDb = null;
+            calibrationReason = "target-changed";
+          } else if (
+            Number.isFinite(lastRmsDb) &&
+            lastRmsDb > Analyser.MIN_DB + 1
+          ) {
+            const nextGainDb = calculateTargetGainDb({
+              currentRmsDb: lastRmsDb,
+              targetRmsDb: profile.targetRmsDb,
+              maxBoostDb: profile.maxBoostDb,
+              maxReductionDb: profile.maxReductionDb
+            });
+            currentGainDb = nextGainDb;
+            outputRmsDb = getEstimatedOutputRmsDb();
+            outputPeakDb = lastPeakDb + currentGainDb + currentOutputTrimDb;
+            predictedPeakDb = lastPeakDb + currentGainDb;
+            autoGain.gain.setTargetAtTime(
+              Analyser.dbToLinear(currentGainDb),
+              context.currentTime,
+              SETTINGS_REENTRY_RAMP_SECONDS
+            );
+            calibrationState = "";
+            calibrationMeasuredRmsDb = null;
+            calibrationAppliedGainDb = null;
+            calibrationReason = "";
+          } else {
+            calibrationState = "";
+            calibrationMeasuredRmsDb = null;
+            calibrationAppliedGainDb = null;
+            calibrationReason = "";
+          }
         }
       }
 

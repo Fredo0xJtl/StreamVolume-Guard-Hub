@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 Toutes les modifications notables de StreamVolume Guard Hub sont documentées ici.
 
@@ -9,11 +9,31 @@ Le changelog public est volontairement consolidé : les micro-corrections faites
 ### Modifié
 
 - Image de partage `assets/social-preview.png` refaite pour présenter StreamVolume Guard Hub comme mixeur audio hybride desktop, navigateur et bridge local.
-- Calibration `BrowserGain` rendue plus robuste : analyse d'environ 12 secondes, minimum de signal utile hors silence, mesure médiane du ton global, pas de boost avant mesure fiable, attenuation temporaire des debuts dangereux et rearmement sur changement durable de niveau.
+- Réactivité On/Off : l’arrêt/activation évite désormais d’attendre une réanalyse complète de toutes les sources avant de répondre à la popup, et la désactivation globale coupe les captures actives sans rafraîchir immédiatement tous les onglets ouverts.
+- Calibration `BrowserGain` reservee au mode avec app desktop connectee : environ 18 secondes et 8 secondes de signal utile. En mode autonome, l'extension revient au gain direct historique base sur le RMS, pour que la cible dB s’applique vite quand un media HTML est controlable.
 - Changement de cible desktop plus reactif pour `BrowserGain` : une source deja verrouillee recalcule immediatement son gain depuis la mesure fiable existante, au lieu d'attendre une nouvelle fenetre complete.
+- Les messages `browser_source_observed` transmettent maintenant `captureSignalState`, `browserState`, `reason` et `recommendedAction` pour que le desktop affiche une raison et une action claire quand une source reste `ObserveOnly`, `Unknown`, `skipped` ou `no-signal`.
+- Sur Spotify-like/DRM flows, une capture d'onglet avec piste audio live (mediaDetected/mediaProcessed positifs, track live) et `captureSignalState=no-signal` reste désormais en observation de capture d'onglet au lieu d'activer systématiquement le `desktop-fallback-available` quand Chrome n'expose pas encore un RMS exploitable.
+- Le bouton `Proteger l'onglet actif` revient a `media-html` par defaut, comme l'ancien projet stable, puis tente `tabCapture` generiquement si le signal HTML reste muet ou introuvable alors que l'onglet est audible. En mode autonome, c'est la derniere tentative de controle direct ; avec l'app connectee, le fallback Windows reste visible.
+- Sur Spotify en `tab-capture-no-signal`, la couche d'activation enchaîne maintenant directement vers `media-html` quand un cooldown no-signal est actif (tab/domain), afin de stabiliser le statut visible et d'eviter le retour `tab-capture` sans progression. Le statut de capture tab est aussi nettoye avant fallback.
+- Manifest Chromium monte a `0.1.29` pour que Brave/Chromium remplace clairement les installations testeur `0.1.28`.
+- Outil historique `tools/package-release.js` aligne sur le suffixe `0.1.29` par defaut pour eviter de produire de nouveaux zips nommes `0.1.28`.
+- Une machine d'etat navigateur partagee classe maintenant `media-html-starting`, `media-html-signal`, `media-html-no-signal`, `tab-capture-starting`, `tab-capture-signal`, `tab-capture-no-signal`, `observe-only` et `desktop-fallback-available` avant d'annoncer `BrowserGain` ou `ObserveOnly`.
+- Le diagnostic separe maintenant le mode autonome du mode hybride : sans app desktop, la limite HTML reste dans `mediaHtmlFallbackReason`; avec l'app connectee, `fallbackRecommended` / `fallbackReason` indiquent le fallback Windows.
 
 ### Corrigé
 
+- La popup garde maintenant l'etat visuel actif en observation tab-capture lorsque la source reste en transition (`no-signal` vers `waiting-for-audio`) suite à un `tabAudible=false` transitoire.
+- Le statut visuel reste stable sur `tab-capture-no-signal` tant que la capture reste `live` et exploitée, même si un évènement `audible` repasse brièvement à `false` côté Chrome.
+ - Verrou visuel popup renforcé sur Spotify/`tab-capture` : l'état observé reste verrouillé dès `audible=false` en l'absence de signal exploitable, puis repasse hors-ON seulement après 2 confirmations stables.
+ - Anti-oscillation popup : passage visuel à off tab-capture en 2 checks consécutifs sur les transitions `audible=false` / `waiting-for-audio` / `starting` avant de se couper visuellement.
+ - Un lecteur web deja detecte mais marque `processed` sans normalizer actif est maintenant retraite au lieu de rester bloque en `mediaDetected=1`, `mediaProcessed=0`.
+- Le diagnostic popup expose maintenant `skippedAlreadyProcessed` pour identifier ce blocage sans masquer la limite derriere un fallback orange.
+- En mode autonome, un fallback `media-html` muet ou sans media controlable peut maintenant declencher l'upgrade generique `tabCapture` si l'onglet est audible. Si `tabCapture` reste sans signal, l'extension revient a un etat `ObserveOnly` lisible.
+- En mode autonome, une source HTML controlable utilise de nouveau le calcul de gain direct au lieu d'attendre une calibration `BrowserGain`, ce qui restaure le changement rapide de cible dB de l'ancien projet extension seule.
+- Apres un echec `tabCapture`, le diagnostic ne range plus `tab-capture-no-signal` dans `mediaHtmlFallbackReason` : il expose `browserState=tab-capture-no-signal`, `captureFallbackReason=tab-capture-no-signal`, et garde une raison HTML separee comme `no-controllable-media-detected`.
+- En mode autonome, la popup affiche maintenant une ligne `Limite media HTML` quand le diagnostic contient `mediaHtmlFallbackReason=no-media-element-detected`, au lieu de laisser croire que le diagnostic est vide.
+- Quand le fallback HTML reste inutilisable apres un `tab-capture-no-signal`, le diagnostic conserve maintenant l'erreur HTML reelle si elle existe au lieu de la remplacer par un message generique.
 - L'activation `Protéger cet onglet` réessaie maintenant le contact avec le content script après injection, puis affiche une erreur claire si l'onglet ne répond toujours pas au lieu de repasser silencieusement inactif.
 - Fusion du profil `Universel` dans `Stream` : `Stream` devient le profil recommandé unique pour YouTube, Twitch, TikTok, Kick, Spotify web et Deezer web.
 - Migration automatique des anciens réglages `universal` vers `stream`, y compris les profils locaux par domaine.
@@ -29,6 +49,41 @@ Le changelog public est volontairement consolidé : les micro-corrections faites
 - TikTok ne retombe plus silencieusement sur le traitement média HTML si `tabCapture` est indisponible, et la popup signale maintenant les captures actives sans signal audio détecté.
 - La popup force maintenant la mise à niveau vers `capture d'onglet` sur TikTok lorsqu'un ancien état `média HTML` est encore actif, au lieu de couper la protection.
 - Le diagnostic TikTok ne reste plus bloqué sur `contextState: unknown` après le démarrage de la capture, et indique maintenant si le signal Web Audio est `starting`, `signal`, `no-signal` ou `unavailable`.
+- Une capture d'onglet qui reste `starting` sans nouveau callback audio est maintenant réévaluée par un watchdog court, puis signalée `tab-capture-no-signal` pour ne pas masquer le fallback desktop.
+- Quand le fallback média HTML échoue après `tab-capture-no-signal`, la popup garde maintenant le bouton de protection actif en mode observation/fallback desktop au lieu de le repasser gris.
+- Quand le fallback média HTML renvoie `mediaDetected > 0` mais `mediaProcessed = 0`, l'extension le considère maintenant comme non contrôlable et garde l'observation active au lieu de repasser visuellement inactif.
+- Quand le fallback média HTML renvoie aussi `mediaDetected = 0` après une capture d'onglet sans signal, l'extension garde maintenant le fallback desktop actif et le bouton ne repasse plus gris.
+- La popup reconnait aussi les champs diagnostic normalises `fallbackRecommended` / `fallbackReason`, pour eviter de repasser visuellement inactive alors que le fallback desktop est bien actif.
+- La popup garde aussi le fallback desktop actif sur les domaines prioritaires `tabCapture` quand `media-html` est actif avec `mediaDetected = 0` et `mediaProcessed = 0`, meme si la raison fallback arrive avec retard.
+- En mode autonome, une source `tab-capture-no-signal` reste maintenant visuellement active en observation/fallback meme si l'app desktop est fermee, au lieu de donner l'impression que le bouton s'est eteint tout seul.
+- En mode `tab-capture`, la fusion des statuts ne surcharge plus `tabAudible` avec la valeur brute de l’onglet quand une capture est active : un `audible=false` isolé ne provoque plus un basculement visuel instantané tant que le signal n’est pas confirmé.
+- En mode Spotify, un `message` de capture reçu avec `enabled:false` en cours d’écoute (`live`, `mediaDetected>0`, `audioTrackCount>0`) n’éteint plus la protection tant qu’il n’y a pas d’arrêt explicite (`user-stop`, `manual-stop`, `site-excluded`) ou fin réelle de piste.
+- Une source `media-html` active qui traite un lecteur mais reste sans signal RMS exploitable passe maintenant en `fallbackReason=media-html-no-usable-signal` apres une courte observation, au lieu d'afficher un `BrowserGain` actif dont la cible dB semble non appliquee.
+- En mode autonome, une page protegee qui revient en `sourceType=media-html`, `mediaDetected=0` et `mediaProcessed=0` garde `enabled=true` et `mediaHtmlFallbackReason=no-media-element-detected`, puis peut tenter `tabCapture` si l'onglet est audible.
+- Quand `media-html` ne detecte aucun media apres la courte phase de detection, le content script republie maintenant un statut de fallback au background. Si l'onglet est audible, cela peut declencher l'upgrade generique `tabCapture` au lieu d'attendre uniquement une copie de diagnostic.
+- En mode media-html, la raison `safety-attenuation` ne force plus `media-html-no-signal` : la source garde `BrowserGain` quand un signal et `mediaDetected/mediaProcessed` sont bons, et le control redevient visible.
+- Les diagnostics `media-html` conservent maintenant `tabAudible` et `tabActive` depuis l'onglet Chromium, pour eviter les faux rapports orange difficiles a interpreter.
+- Le refresh des reglages et les changements de cible dB ne coupent plus un onglet deja protege : seul un arret utilisateur explicite ou une exclusion remet `enabled=false`.
+- L'upgrade generique `media-html` vers `tabCapture` ne desactive plus le fallback HTML avant que la capture d'onglet ait vraiment demarre, afin d'eviter les diagnostics `tabAudible=true` mais `enabled=false`.
+- La popup affiche maintenant `Controle via Windows` / `Windows control` comme etat principal quand une source reste observable mais depend du fallback desktop, et garde `Source incompatible` pour les vrais cas sans fallback exploitable.
+- Le bouton Options `Appliquer les reglages` ignore maintenant les onglets non joignables par l'extension pendant le rafraichissement global, afin qu'une cible dB sauvegardee ne soit plus affichee `Non applique` a cause d'un onglet interne ou non injectable.
+- Le diagnostic popup retrouve maintenant l'onglet actif via la derniere fenetre navigateur focalisee si `currentWindow` ne donne pas de page normale, afin d'eviter `site=""` et `sourceType=unknown` alors que Spotify/YouTube est ouvert.
+- Le diagnostic popup transmet maintenant l'ID exact de l'onglet actif au background et evite les clics multiples sur `Copier diagnostic`.
+- `Copier diagnostic` copie maintenant immediatement l'etat local deja affiche, sans attendre un rafraichissement force ni le health check desktop, afin d'eviter les erreurs de presse-papiers apres un delai trop long.
+- Les appels bridge local (`/health`, `/global-target`, `/browser-source`, `/extension-log`) ont maintenant un timeout court quand l'app desktop est fermee.
+- L'export diagnostic Options peut maintenant selectionner un onglet media deja observe au lieu de diagnostiquer la page Options elle-meme, ce qui evitait `site=""`, `sourceType=unknown` et des conclusions fausses sur la cible dB.
+- Le background recupere maintenant le domaine depuis le content script quand Chromium ne fournit pas `tab.url`, afin que Spotify/YouTube/TikTok ne tombent plus en `site=""` avant meme le choix du mode de controle.
+- Le diagnostic popup ne retourne plus un statut vide juste parce qu'un `tabId` est fourni : il tente d'abord de recuperer le site via le content script.
+- Une capture d'onglet `no-signal` est maintenant arretee avant de publier le fallback `media-html` / desktop, afin d'eviter de garder un chemin `tab-capture live` stale qui peut provoquer des gresillements ou des diagnostics instables.
+- Le fallback `Controle via Windows` n'est plus declenche immediatement quand `media-html` vient juste d'etre active avec `mediaDetected=0` : l'extension laisse d'abord une courte phase de detection, puis applique `BrowserGain` si un media controlable apparait.
+- Le toggle popup affiche maintenant l'etat de protection de l'onglet courant, pas uniquement le reglage global de l'extension, afin d'eviter le faux off/on a la reouverture.
+- Le toggle popup reste maintenant visuellement actif quand l'extension est globalement active mais que le statut d'onglet est encore `unknown` ou `active-tab-empty`.
+- L'export diagnostic popup ajoute `globalEnabled`, `visualEnabled`, `popupTabIdKnown`, `statusRoute`, `diagnosticReason` et `statusError` pour identifier la couche qui perd le site actif sans exposer l'URL ni le titre de page.
+- Le service worker background ne declare plus son listener `runtime.onMessage` en `async`, afin que Chromium garde correctement le canal `sendResponse` ouvert. Cela evite les reponses vides qui faisaient afficher `statusOk=true` sans site dans la popup et `Non applique` dans Options.
+- La popup traite maintenant une reponse runtime vide comme une erreur `runtime-empty-response` au lieu de la transformer en faux succes.
+- La popup force maintenant un nouveau check local `/health` a l'ouverture, apres `Proteger l'onglet actif` et avant `Copier diagnostic`, afin que `Mode autonome` / `App connectee` se mette a jour plus vite.
+- L'export diagnostic Options inclut maintenant `desktopBridge` et indique `standalone-media-html-unavailable` quand une source web n'est pas controlable en mode extension seule, sans afficher un fallback Windows tant que l'app desktop est fermee.
+- Quand le mode `media-html` est activé mais ne trouve aucun média contrôlable, par exemple Spotify Web selon le navigateur, l'extension annonce maintenant `ObserveOnly` avec une raison claire (`no-media-element-detected` ou `no-controllable-media-detected`).
 - Une capture d'onglet muette malgré une piste audio live déclenche maintenant une seule relance automatique contrôlée, avec compteur visible dans le diagnostic.
 - Quand TikTok est silencieux ou non audible pendant un changement de réglage, la relance automatique attend maintenant que l'onglet redevienne audible au lieu de consommer le seul essai et d'afficher une erreur permanente.
 - Le diagnostic de capture conserve maintenant l'état audible/actif calculé par le background quand l'offscreen renvoie un statut partiel, afin d'éviter un faux `no-signal` après un changement de cible dB sur TikTok.

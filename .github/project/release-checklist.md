@@ -14,6 +14,9 @@ Required:
 
 - [ ] `CHANGELOG.md` describes what changed.
 - [ ] `README.md` explains current behavior and limits.
+- [ ] Root `LICENSE` exists and is included in the tester package.
+- [ ] Desktop assembly metadata and browser manifest version are aligned with the alpha release.
+- [ ] Privacy policy covers desktop, extension, bridge, logs, and browser permissions.
 - [ ] `docs/release-notes/v0.1.0-alpha.1.md` contains honest pre-release notes.
 - [ ] `docs/tester-checklist.md` matches the package and app UI.
 - [ ] `.github/project/backlog.csv` reflects the current known blockers.
@@ -22,10 +25,16 @@ Required:
 - [ ] Browser extension syntax checks pass.
 - [ ] Desktop tests pass.
 - [ ] Desktop build passes.
-- [ ] `tools/package-tester.ps1` regenerates the tester package folder and zip.
+- [ ] `tools/package-tester.ps1` regenerates the tester package folder, zip, and SHA256 file.
+- [ ] The desktop package is self-contained `win-x64` and launches without requiring .NET runtime install.
 - [ ] The tester package launches without opening the `.sln`.
-- [ ] Real logs show whether each browser source is `BrowserGain`, `ObserveOnly`, or `Unknown`.
-- [ ] Release notes say clearly that YouTube/TikTok can fall back to global browser volume when direct BrowserGain is unavailable.
+- [ ] Unsigned Windows package behavior is documented, or the executable is signed with a valid certificate.
+- [ ] Real logs show whether each browser source is `BrowserGain`, `ObserveOnly`, or `Unknown`, with fallback reasons when direct control is unavailable.
+- [ ] Real logs show `global_output.*` when loopback capture is available, and the desktop still works if the monitor reports `Unknown` or `global_output.error`.
+- [ ] The Global Output Monitor is still read-only: no Windows master volume change and no raw audio/samples in logs.
+- [ ] `global_output.unknown_active` is documented and tested when output is active without a known active source.
+- [ ] `Stream Safe`, guided test mode, and `Guide OBS` are visible in the desktop and logged locally.
+- [ ] Release notes say clearly that YouTube can be direct `BrowserGain`, while TikTok/Spotify Web may fall back to global browser volume when direct BrowserGain or media HTML control is unavailable.
 
 ## Stable Release: V1
 
@@ -58,6 +67,9 @@ Run-Step node @("--check", "apps/browser-extension/audio/normalizer.js")
 Run-Step node @("--check", "apps/browser-extension/bridge/client.js")
 Run-Step node @("--check", "apps/browser-extension/background.js")
 Run-Step node @("--check", "apps/browser-extension/content.js")
+Run-Step node @("--check", "apps/browser-extension/offscreen/offscreen.js")
+Run-Step node @("--check", "apps/browser-extension/popup/popup.js")
+Run-Step node @("--check", "apps/browser-extension/options/options.js")
 
 Run-Step dotnet @("run", "--project", "apps/desktop/tests/StreamVolumeGuard.Tests/StreamVolumeGuard.Tests.csproj")
 Run-Step dotnet @("build", "apps/desktop/StreamVolumeGuard.Desktop.sln", "-nr:false")

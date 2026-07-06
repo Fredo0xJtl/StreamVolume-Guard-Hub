@@ -1,4 +1,4 @@
-﻿using StreamVolumeGuard.Core.Audio;
+using StreamVolumeGuard.Core.Audio;
 
 namespace StreamVolumeGuard.Core.Browser;
 
@@ -20,7 +20,11 @@ public sealed record BrowserSubSourceSnapshot(
     string CalibrationState = "",
     float? MeasuredRmsDb = null,
     float? AppliedGainDb = null,
-    string CalibrationReason = "")
+    string CaptureSignalState = "",
+    string CalibrationReason = "",
+    string BrowserState = "",
+    string Reason = "",
+    string RecommendedAction = "")
 {
     public bool IsControllable => ControlSurface is AudioControlSurface.BrowserGain or AudioControlSurface.WindowsSessionVolume;
 }

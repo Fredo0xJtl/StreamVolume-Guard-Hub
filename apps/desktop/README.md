@@ -4,6 +4,10 @@ Couche Windows de StreamVolume Guard Hub.
 
 Le desktop agit comme un melangeur Windows intelligent : il observe les sessions audio exposees par Windows, affiche les applications disponibles, permet le controle manuel, et applique une calibration automatique ponctuelle quand `Auto actif` est active.
 
+Il affiche aussi `Sortie globale`, une mesure lecture seule du son envoye vers la sortie Windows par defaut : RMS, pic recent, etat `Safe` / `Risky` / `Silent` / `Unknown` et peripherique utilise. Ce monitor ne modifie jamais le volume master Windows. En cas de machine incompatible, il peut etre desactive avec `STREAMVOLUME_GUARD_DISABLE_GLOBAL_OUTPUT=1`.
+
+L'interface desktop choisit automatiquement sa langue au demarrage : francais si la culture Windows commence par `fr`, anglais pour toute autre langue. Les logs restent en format technique stable pour faciliter les rapports de test.
+
 ## Role Dans L'Architecture Hybride
 
 - Controle : `WindowsSessionVolume`.
@@ -17,6 +21,7 @@ Le desktop agit comme un melangeur Windows intelligent : il observe les sessions
 - Desktop seul : controle les sessions audio Windows, gere `Auto actif`, profils, exclusions, Panic et logs locaux. Il affiche `App seule` tant qu'aucune extension n'a ete vue.
 - Desktop avec extension : recoit les sous-sources navigateur, expose la cible globale via `GET /global-target`, affiche `Extension connectee`, applique un fallback Windows rapide sur les changements volontaires de cible, et evite ensuite les conflits entre `BrowserGain` stable et `WindowsSessionVolume`.
 - Desktop sans source controlable : garde la source visible en `ObserveOnly` ou `Unknown` au lieu de promettre une correction impossible.
+- Sortie globale : observe le mix final localement pour verifier si l'ensemble du PC est silencieux, stable ou risque, sans compresser ni corriger le son global.
 
 ## Commandes Locales
 
@@ -93,6 +98,7 @@ Si `BridgeToken` est vide ou absent, les tests locaux et l'extension fonctionnen
 - `Auto actif` et exclusions persistants en JSON local.
 - `Auto actif` limite la correction a une calibration one-shot par source active, avec log `volume.auto_locked` quand une correction supplementaire est ignoree.
 - Changement de cible globale : applique un profil en pourcentage du melangeur Windows, rearme une calibration ponctuelle, expose la cible a l'extension via `GET /global-target`, et autorise un fallback Windows immediat pour que l'action utilisateur soit effective rapidement.
+- `Sortie globale` est strictement en lecture seule : elle journalise `global_output.*` avec RMS/pic/etat, sans volume master, sans audio brut, sans samples.
 - Sessions inconnues ou non controlables affichees honnetement.
 - Sous-sources navigateur affichees separement quand elles arrivent de la simulation ou du bridge.
 - Anti-conflit actif : quand une vraie source navigateur recente est controlee par `BrowserGain` verrouille, le desktop evite les corrections automatiques concurrentes. Les etats `measuring`, `ObserveOnly`, `Unknown`, `skipped` et `no-signal` gardent le fallback Windows disponible.
@@ -107,4 +113,4 @@ Le desktop est global au niveau des sessions Windows. Il ne remplace pas un driv
 
 Les sous-sources navigateur sont representees separement quand elles arrivent de l'extension ou de la simulation. Leur surface de controle doit etre explicite : `BrowserGain`, `ObserveOnly`, `Unknown`, ou une autre valeur supportee par `packages/protocol`.
 
-Quand une sous-source navigateur est `BrowserGain` et controlable, l'extension devient prioritaire seulement apres verrouillage de calibration et le desktop affiche son etat. Tant que la sous-source mesure encore, devient `ObserveOnly`, `Unknown`, silencieuse ou inexploitable, le controle V1 revient au `WindowsSessionVolume` du navigateur, surtout si une seule page web joue. Un changement volontaire de cible peut aussi declencher ce fallback Windows pour donner un effet immediat.
+Quand une sous-source navigateur est `BrowserGain` et controlable, l'extension devient prioritaire seulement apres verrouillage de calibration et le desktop affiche son etat. Tant que la sous-source mesure encore, devient `ObserveOnly`, `Unknown`, silencieuse ou inexploitable, le controle V1 revient au `WindowsSessionVolume` du navigateur, surtout si une seule page web joue. Un changement volontaire de cible peut aussi declencher ce fallback Windows pour donner un effet immediat. Les colonnes `Raison` et `Action` expliquent pourquoi une source n'est pas directement controlable et guident vers rechargement, reprotection, fallback Windows ou OBS.

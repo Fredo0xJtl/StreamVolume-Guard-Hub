@@ -24,8 +24,6 @@
   const silentMediaUpgradeCandidates = new Map();
   const sourceNoSignalCooldowns = new Map();
   const sourceNoSignalDomainCooldowns = new Map();
-  const spotifyNoSignalCooldowns = new Map();
-  const spotifyNoSignalDomainCooldowns = new Map();
   const silentMediaUpgradeCooldowns = new Map();
   const silentMediaUpgradeInFlight = new Set();
   let captureListeningPollTimer = null;
@@ -36,8 +34,6 @@
   const SILENT_MEDIA_UPGRADE_LEVEL_THRESHOLD = 0.001;
   const SILENT_MEDIA_UPGRADE_COOLDOWN_MS = 45000;
   const SOURCE_NO_SIGNAL_COOLDOWN_MS = 45000;
-  const SPOTIFY_NO_SIGNAL_COOLDOWN_MS = 45000;
-  const SPOTIFY_CAPTURE_DOMAINS = new Set(["spotify.com"]);
   const mediaHtmlFallbackReasonsForUpgrade = new Set([
     "no-media-element-detected",
     "no-controllable-media-detected",
@@ -877,7 +873,7 @@
       incoming.lastError = "";
     }
 
-    if (incoming.captureSignalState === "no-signal" && incoming.tabAudible === false) {
+    if (incoming.captureSignalState === "no-signal" && incoming.tabAudible !== true) {
       incoming.captureSignalState = "waiting-for-audio";
       incoming.captureRestartDeferred = true;
       incoming.lastError = "";
@@ -887,7 +883,6 @@
   }
 
   function shouldFallbackSilentCaptureToMedia(status) {
-    if (isSpotifyDomain(status && status.site)) return false;
     return Boolean(
       status &&
       status.sourceType === "tab-capture" &&
@@ -897,46 +892,6 @@
       Number(status.rmsDb) <= -100 &&
       Number(status.outputRmsDb) <= -100
     );
-  }
-
-  function shouldPreserveSpotifyCaptureAfterTransientOff(tabId, incomingStatus) {
-    const existing = getCaptureStatus(tabId);
-    if (!incomingStatus || incomingStatus.enabled) return false;
-    if (!existing) return false;
-    if (!existing.enabled) return false;
-    if (existing.sourceType !== "tab-capture") return false;
-    if (!isActiveSpotifyCaptureForPreservation(existing, incomingStatus)) return false;
-    const stopReason = String(incomingStatus.captureStopReason || "").toLowerCase();
-    if (
-      stopReason === "user-stop" ||
-      stopReason === "manual-stop" ||
-      stopReason === "site-excluded"
-    ) {
-      return false;
-    }
-    if (!isSpotifyDomain(existing.site)) return false;
-    return true;
-  }
-
-  function isActiveSpotifyCaptureForPreservation(existing, incomingStatus) {
-    const incomingTrackState = String(incomingStatus && incomingStatus.captureTrackState || "").toLowerCase();
-    const hasUsableCaptureTrack = Number(existing.audioTrackCount) > 0 && existing.captureTrackState === "live";
-    const hasCapturedElements = Number(existing.mediaDetected) > 0 || Number(existing.mediaProcessed) > 0;
-    const incomingNotTerminal = incomingTrackState !== "ended" && incomingTrackState !== "interrupted";
-
-    return (
-      existing && isSpotifyDomain(existing.site) &&
-      hasUsableCaptureTrack &&
-      hasCapturedElements &&
-      incomingNotTerminal
-    );
-  }
-
-  function isSpotifyDomain(domain) {
-    const normalizedDomain = Settings.normalizeDomain(domain || "");
-    if (!normalizedDomain) return false;
-    if (SPOTIFY_CAPTURE_DOMAINS.has(normalizedDomain)) return true;
-    return normalizedDomain.endsWith(".spotify.com");
   }
 
   function getSourceNoSignalCooldownUntil(tabId) {
@@ -993,65 +948,6 @@
   function clearSourceNoSignalCooldowns(tabId, site) {
     clearSourceNoSignalCooldown(tabId);
     clearSourceNoSignalDomainCooldown(site);
-  }
-
-  function getSpotifyNoSignalCooldownUntil(tabId) {
-    const normalizedTabId = Number(tabId);
-    if (!Number.isFinite(normalizedTabId)) return 0;
-    return spotifyNoSignalCooldowns.get(normalizedTabId) || 0;
-  }
-
-  function clearSpotifyNoSignalCooldown(tabId) {
-    spotifyNoSignalCooldowns.delete(Number(tabId));
-  }
-
-  function setSpotifyNoSignalCooldown(tabId) {
-    const normalizedTabId = Number(tabId);
-    if (!Number.isFinite(normalizedTabId)) return 0;
-    const until = Date.now() + SPOTIFY_NO_SIGNAL_COOLDOWN_MS;
-    spotifyNoSignalCooldowns.set(normalizedTabId, until);
-    return until;
-  }
-
-  function isSpotifyNoSignalLocked(tabId) {
-    const until = getSpotifyNoSignalCooldownUntil(tabId);
-    return Number.isFinite(until) && until > Date.now();
-  }
-
-  function normalizeSpotifyDomain(domain) {
-    return Settings.normalizeDomain(domain || "");
-  }
-
-  function getSpotifyNoSignalDomainCooldownUntil(site) {
-    const normalizedSite = normalizeSpotifyDomain(site);
-    if (!normalizedSite) return 0;
-    return spotifyNoSignalDomainCooldowns.get(normalizedSite) || 0;
-  }
-
-  function setSpotifyNoSignalDomainCooldown(site, untilMs) {
-    const normalizedSite = normalizeSpotifyDomain(site);
-    if (!normalizedSite) return 0;
-    const safeUntil = Number.isFinite(Number(untilMs)) ? Number(untilMs) : Date.now() + SPOTIFY_NO_SIGNAL_COOLDOWN_MS;
-    const until = safeUntil > Date.now() ? safeUntil : Date.now() + SPOTIFY_NO_SIGNAL_COOLDOWN_MS;
-    spotifyNoSignalDomainCooldowns.set(normalizedSite, until);
-    return until;
-  }
-
-  function clearSpotifyNoSignalDomainCooldown(site) {
-    const normalizedSite = normalizeSpotifyDomain(site);
-    if (!normalizedSite) return;
-    spotifyNoSignalDomainCooldowns.delete(normalizedSite);
-  }
-
-  function isSpotifyNoSignalDomainLocked(site) {
-    const until = getSpotifyNoSignalDomainCooldownUntil(site);
-    return Number.isFinite(until) && until > Date.now();
-  }
-
-  function setSpotifyNoSignalCooldowns(tabId, site) {
-    const until = setSpotifyNoSignalCooldown(tabId);
-    setSpotifyNoSignalDomainCooldown(site, until);
-    return until;
   }
 
   function normalizeDomainForMemory(site) {
@@ -1630,6 +1526,7 @@
     });
 
     await stopSilentTabCapture(tabId);
+    captureStatuses.delete(tabId);
 
     if (!tab || !tab.id || !canInjectUrl(tab.url)) {
       updateCaptureStatus(tabId, observedFallbackStatus);
@@ -1908,7 +1805,7 @@
 
   async function fallbackTabCaptureStartToMedia(tab, failedStatus) {
     const failure = failedStatus || buildTabCaptureUnavailableStatus(tab, "tab-capture-start-failed");
-    const fallbackReason = failure && failure.captureFallbackReason ? failure.captureFallbackReason : "tab-capture-start-failed";
+    const fallbackReason = "tab-capture-start-failed";
     if (!tab || !tab.id || (!getDomainFromTab(tab) && !canInjectUrl(tab.url))) {
       return failure;
     }
@@ -1931,7 +1828,7 @@
       return {
         ...fallbackStatus,
         captureFallbackRecommended: false,
-        captureFallbackReason: fallbackReason,
+        captureFallbackReason: "tab-capture-start-failed",
         lastError: fallbackStatus.lastError || ""
       };
     }
@@ -1939,7 +1836,7 @@
     return {
       ...failure,
       captureFallbackRecommended: true,
-      captureFallbackReason: failure.captureFallbackReason || "tab-capture-start-failed",
+      captureFallbackReason: fallbackReason,
       lastError: (fallbackStatus && fallbackStatus.error) || failure.lastError || failure.error || "Tab capture failed and media-html fallback is unavailable.",
       error: (fallbackStatus && fallbackStatus.error) || failure.error || "Tab capture failed and media-html fallback is unavailable."
     };
@@ -1960,18 +1857,6 @@
     if (!currentStatus || currentStatus.sourceType !== "tab-capture") {
       return { ok: false, error: "Aucune capture d'onglet active a relancer." };
     }
-    if (isSpotifyDomain(currentStatus.site || getDomainFromTab(tab))) {
-      return {
-        ok: true,
-        status: updateCaptureStatus(tab.id, {
-          captureSignalState: currentStatus.captureSignalState || "no-signal",
-          captureRestartCount: Number(restartCount) || 1,
-          captureRestartDeferred: false,
-          lastError: ""
-        })
-      };
-    }
-
     const requestedRestartCount = Number(restartCount) || 1;
     if (shouldDeferSilentCaptureRestart(tab)) {
       const status = updateCaptureStatus(tab.id, {
@@ -2068,7 +1953,6 @@
     const tab = tabId ? await getTabById(Number(tabId)) : await getActiveTab();
     if (!tab || !tab.id) return { ok: true, enabled: false };
     clearSourceNoSignalCooldowns(tab.id, getDomainFromTab(tab));
-    clearSpotifyNoSignalCooldown(tab.id);
     await sendRuntimeMessage({ target: "offscreen", type: "WLG_STOP_TAB_CAPTURE", tabId: tab.id });
     clearCaptureStatus(tab.id);
     return getStatusForActiveTab(tab.id);
@@ -2229,7 +2113,6 @@
 
   chrome.tabs.onRemoved.addListener((tabId) => {
     clearSourceNoSignalCooldown(tabId);
-    clearSpotifyNoSignalCooldown(tabId);
     clearCaptureStatus(tabId);
     sendRuntimeMessage({ target: "offscreen", type: "WLG_STOP_TAB_CAPTURE", tabId });
   });
@@ -2275,18 +2158,6 @@
           });
         }
       } else {
-        if (shouldPreserveSpotifyCaptureAfterTransientOff(message.tabId, normalizedStatus)) {
-          const preservedStatus = updateCaptureStatus(message.tabId, {
-            ...normalizedStatus,
-            ...getCaptureStatus(message.tabId),
-            enabled: true,
-            captureFallbackRecommended: true,
-            captureFallbackReason: "tab-capture-no-signal"
-          });
-          forwardCaptureStatusToBridge(message.tabId, preservedStatus).catch(() => {});
-          return { ok: true, enabled: true };
-        }
-
         if (isGlobalDisableCooldownActive()) {
           const disabledStatus = updateCaptureStatus(message.tabId, {
             ...normalizeIncomingCaptureStatus(message.tabId, message.status),
@@ -2295,6 +2166,8 @@
           forwardCaptureStatusToBridge(message.tabId, disabledStatus).catch(() => {});
           return { ok: true, enabled: false };
         }
+        const tab = { id: message.tabId };
+        captureStatuses.delete(tab.id);
         clearCaptureStatus(message.tabId);
       }
     }

@@ -6,8 +6,6 @@
   const captures = new Map();
   const CAPTURE_NO_SIGNAL_WATCHDOG_MS = 1800;
   const MAX_CAPTURE_RESTARTS = 1;
-  const SPOTIFY_CAPTURE_DOMAINS = new Set(["spotify.com"]);
-  const SPOTIFY_SIGNAL_CONFIRM_COUNT = 3;
 
   function getCaptureHealth(stream) {
     const audioTracks = stream && stream.getAudioTracks ? stream.getAudioTracks() : [];
@@ -34,29 +32,9 @@
     return elapsedMs >= CAPTURE_NO_SIGNAL_WATCHDOG_MS ? "no-signal" : "starting";
   }
 
-  function isSpotifyDomain(site) {
-    const normalizedSite = Settings.normalizeDomain(typeof site === "string" ? site : "");
-    if (!normalizedSite) return false;
-    return (
-      SPOTIFY_CAPTURE_DOMAINS.has(normalizedSite) ||
-      [...SPOTIFY_CAPTURE_DOMAINS].some((domain) => normalizedSite.endsWith(`.${domain}`))
-    );
-  }
-
-  function buildNormalizerStatus(stream, nextState, startedAt, restartCount, restartDeferred, capture) {
+  function buildNormalizerStatus(stream, nextState, startedAt, restartCount, restartDeferred) {
     const captureHealth = getCaptureHealth(stream);
     let captureSignalState = getCaptureSignalState(captureHealth, nextState, startedAt);
-    if (isSpotifyDomain(capture && capture.site)) {
-      if (captureSignalState === "signal") {
-        const confirmCount = Number(capture.spotifySignalConfirmCount) || 0;
-        capture.spotifySignalConfirmCount = Math.min(confirmCount + 1, SPOTIFY_SIGNAL_CONFIRM_COUNT);
-        if (capture.spotifySignalConfirmCount < SPOTIFY_SIGNAL_CONFIRM_COUNT) {
-          captureSignalState = "no-signal";
-        }
-      } else {
-        capture.spotifySignalConfirmCount = 0;
-      }
-    }
     if (restartDeferred && captureSignalState === "no-signal") {
       captureSignalState = "waiting-for-audio";
     }
@@ -223,7 +201,6 @@
     if (capture.restartRequested) return;
     if (capture.restartDeferred) return;
     if (status.captureSignalState !== "no-signal") return;
-    if (isSpotifyDomain(capture.site)) return;
 
     const restartCount = Number(capture.restartCount) || 0;
     if (restartCount >= MAX_CAPTURE_RESTARTS) return;
@@ -283,8 +260,7 @@
         nextState,
         startedAt,
         restartCount,
-        capture && capture.restartDeferred,
-        capture
+        capture && capture.restartDeferred
       )
     );
     if (!updatedStatus) return null;
@@ -439,7 +415,7 @@
       return { ok: true, status: startedStatus || captures.get(tabId).status };
     } catch (error) {
       if (captures.has(tabId)) {
-        stopCapture(tabId, { reason: "startup-error" });
+        stopCapture(tabId);
       } else {
         try {
           if (normalizer) normalizer.stop();

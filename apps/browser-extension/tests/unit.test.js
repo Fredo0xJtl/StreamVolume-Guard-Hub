@@ -2808,7 +2808,7 @@ test("tab capture respects exclusions and stops on navigation", () => {
 test("manifest uses localized metadata and Guard Signal PNG icons", () => {
   const manifest = readJson("manifest.json");
 
-  assert.equal(manifest.version, "0.1.38");
+  assert.equal(manifest.version, "0.1.44");
   assert.equal(manifest.default_locale, "en");
   assert.equal(manifest.name, "__MSG_extensionName__");
   assert.equal(manifest.description, "__MSG_extensionDescription__");

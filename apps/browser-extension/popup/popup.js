@@ -485,11 +485,16 @@
     const activeIntentState = getActiveToggleIntentState();
     if (activeIntentState !== null) return activeIntentState;
 
+    const safeCachedTabCaptureObservedState = cachedTabCaptureObservedState === null
+      ? cachedTabCaptureObservedNoSignal
+      : cachedTabCaptureObservedState;
+    const safeMonitoringSourceActive = monitoringSourceActive || monitoringSourceHoldActive;
+
     if (!currentStatus || currentStatus.excluded) return false;
 
     if (needsDesktopFallback(currentStatus)) return true;
-    if (cachedTabCaptureObservedState !== null) {
-      if (cachedTabCaptureObservedState) return true;
+    if (safeCachedTabCaptureObservedState !== null) {
+      if (safeCachedTabCaptureObservedState) return true;
     } else if (isObservedTabCaptureNoSignalStable(currentStatus)) {
       return true;
     }
@@ -501,7 +506,7 @@
       return true;
     }
 
-    return Boolean(monitoringSourceActive) ||
+    return Boolean(safeMonitoringSourceActive) ||
       (hasControllableProtectionSurface(currentStatus) &&
         !requiresTabCaptureUpgrade(currentStatus));
   }
@@ -516,7 +521,10 @@
     if (requiresTabCaptureUpgrade(currentStatus)) return false;
     if (cachedTabCaptureObservedNoSignal) return true;
     if (currentStatus && currentStatus.sourceType === "tab-capture") return true;
-    return monitoringSourceActive || isMonitoringSourceActive(currentStatus);
+    if (monitoringSourceActive || isMonitoringSourceActive(currentStatus)) {
+      return effectiveEnabled && !requiresTabCaptureUpgrade(currentStatus);
+    }
+    return false;
   }
 
   function isObservedTabCaptureNoSignal(status) {
@@ -767,19 +775,18 @@
     const enabled = Boolean(safeStatus.enabled);
     const monitoringSourceActive = isMonitoringSourceActive(safeStatus);
     const monitoringSourceActiveWithHold = updateMonitoringSourceHoldState(safeStatus);
-    const shouldStopProtection = enabled &&
-      monitoringSourceActiveWithHold &&
-      hasControllableProtectionSurface(safeStatus) &&
-      !requiresTabCaptureUpgrade(safeStatus);
-    const needsDesktopFallbackProtection = needsDesktopFallback(safeStatus);
+    const shouldStopProtection = enabled && !requiresTabCaptureUpgrade(status);
+    const needsDesktopFallbackProtection = needsDesktopFallback(status);
     const desktopFallbackActive = needsDesktopFallbackProtection;
     const tabCaptureObserved = cacheTabCaptureNoSignalState(status);
-    const tabProtectionActive = shouldStopProtection || needsDesktopFallbackProtection || monitoringSourceActiveWithHold;
-    const toggleVisualState = getToggleVisualState(tabCaptureObserved, monitoringSourceActiveWithHold);
+    const tabProtectionActive = shouldStopProtection || needsDesktopFallbackProtection;
+    const activationPending = setEnabledInProgress || getPendingToggleState() === true || getActiveToggleIntentState() === true;
+    const unknownStatusWithGlobalProtection = Boolean(currentSettings && currentSettings.enabled) && isUnknownProtectionStatus(status);
+    const toggleVisualState = getToggleVisualState();
     const protectButtonActive = getProtectionStateForButton(monitoringSourceActiveWithHold);
 
     elements.siteLabel.textContent = safeStatus.site || i18n("popupUnknownSite", "unknown site");
-    elements.enabledToggle.checked = Boolean(tabProtectionActive || toggleVisualState);
+    elements.enabledToggle.checked = Boolean(toggleVisualState && (tabProtectionActive || activationPending || unknownStatusWithGlobalProtection));
     elements.enabledToggle.disabled = excluded || setEnabledInProgress;
     elements.profileSelect.value = safeStatus.activeProfile || Settings.getEffectiveProfileIdForDomain(currentSettings, safeStatus.site);
     elements.profileHint.textContent = profileHintForStatus(safeStatus);
@@ -790,7 +797,7 @@
     renderDiagnostics(safeStatus);
     renderDesktopLink();
 
-    elements.statusBadge.classList.toggle("is-on", (shouldStopProtection || desktopFallbackActive || tabCaptureObserved) && !excluded);
+    elements.statusBadge.classList.toggle("is-on", (shouldStopProtection || desktopFallbackActive) && !excluded);
     elements.statusBadge.classList.toggle("is-blocked", excluded);
     let statusBadgeText = i18n("popupReady", "ready");
     if (excluded) {
@@ -843,7 +850,7 @@
     await refreshActiveTabContext();
     currentStatus = await sendRuntimeMessage("WLG_GET_ACTIVE_STATUS", activeTabPayload());
     await refreshToggleIntentState();
-    await refreshDesktopLinkStatus(Boolean(forceDesktopLink));
+    await refreshDesktopLinkStatus(true);
     reconcilePendingToggleState();
     render();
   }

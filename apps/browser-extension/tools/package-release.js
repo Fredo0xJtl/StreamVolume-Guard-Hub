@@ -96,7 +96,7 @@ function packageProject(version) {
   }
 }
 
-function packageRelease(version = "0.1.4") {
+function packageRelease(version = "0.1.38") {
   fs.mkdirSync(releaseAssetsDir, { recursive: true });
 
   for (const [sourceGlob, packageName] of extensionPackages) {
@@ -108,7 +108,7 @@ function packageRelease(version = "0.1.4") {
 }
 
 if (require.main === module) {
-  packageRelease(process.argv[2] || "0.1.4");
+  packageRelease(process.argv[2] || "0.1.38");
   console.log("Zips de release generes dans release-assets/");
 }
 
